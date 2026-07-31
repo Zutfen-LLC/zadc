@@ -357,27 +357,9 @@ class TestBT06MissingUvFailsClosed:
 # ===========================================================================
 # BT-07: Happy path remains green
 # ===========================================================================
-
-
-class TestBT07HappyPathRemainsGreen:
-    """Run make workflow-lint using the real pinned actionlint and uv-locked
-    zizmor path successfully."""
-
-    def test_make_workflow_lint_succeeds(self) -> None:
-        """The real workflow-lint path (network download + checksum verify +
-        version verify + actionlint + zizmor + pattern check) must succeed."""
-        result = subprocess.run(
-            ["make", "workflow-lint"],
-            capture_output=True,
-            text=True,
-            cwd=str(REPO_ROOT),
-            timeout=300,
-        )
-        assert result.returncode == 0, (
-            f"make workflow-lint failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-        )
-        assert "actionlint passed" in result.stdout or "actionlint passed" in result.stderr
-        assert (
-            "All workflow linting passed" in result.stdout
-            or "All workflow linting passed" in result.stderr
-        )
+# The BT-07 happy-path proof is the real ``make workflow-lint`` command,
+# executed as a standalone local verification (recorded in the completion
+# report) and as the CI ``workflow-lint`` job on the exact PR head SHA.
+# It is deliberately NOT a pytest test because calling ``make workflow-lint``
+# from inside pytest mutates the shared ``.venv`` (uv recreates it for the
+# default Python), which breaks subsequent tests in the CI matrix.
