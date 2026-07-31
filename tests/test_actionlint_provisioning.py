@@ -1,9 +1,10 @@
-"""Behavioral proof tests for actionlint provisioning (ZADC-000-FIX3).
+"""Behavioral proof tests for actionlint provisioning (ZADC-000-FIX3/FIX4).
 
 These tests execute the real provisioning code paths and assert observable
-behavior. Each test corresponds to a behavioral proof (BT3-01 through BT3-08)
-required by the ZADC-000-FIX3 fix packet. BT3-09 is the standalone
-make workflow-lint proof, recorded separately.
+behavior. Each test corresponds to a behavioral proof required by the fix
+packets: BT3-01 through BT3-08 (FIX3) and BT4-01 through BT4-05 (FIX4).
+BT3-09 / BT4-06 is the standalone make workflow-lint proof, recorded
+separately.
 
 All negative-path tests are offline and deterministic — no external network,
 no pytest.skip.
@@ -601,3 +602,431 @@ class TestBT308NonSkippableMissingUv:
         )
         assert result.returncode != 0, "Missing uv must always fail closed — no skip allowed"
         assert "uv" in result.stderr.lower()
+
+
+# ===========================================================================
+# FIX4-A helpers: shim builders for destination-stage failure simulation
+# ===========================================================================
+
+
+def _make_chmod_shim(tmp_path: Path, staging_prefix: str) -> tuple[Path, Path]:
+    """Create a chmod shim that fails for files matching staging_prefix.
+
+    Returns (shim_path, controlled_bin_dir).
+    The shim passes through to real chmod for all files except those
+    matching the staging prefix.
+    """
+    controlled_bin = tmp_path / "chmod_shim_bin"
+    controlled_bin.mkdir(parents=True, exist_ok=True)
+
+    # Symlink all standard commands
+    for cmd in [
+        "bash",
+        "curl",
+        "tar",
+        "sha256sum",
+        "shasum",
+        "cp",
+        "mv",
+        "rm",
+        "mkdir",
+        "head",
+        "sed",
+        "awk",
+        "command",
+        "dirname",
+        "pwd",
+        "mktemp",
+        "cat",
+        "echo",
+    ]:
+        path = subprocess.run(
+            ["bash", "-c", f"command -v {cmd} 2>/dev/null"],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if path:
+            link = controlled_bin / cmd
+            if not link.exists():
+                link.symlink_to(path)
+
+    # Create chmod shim that fails for staging files
+    chmod_shim = controlled_bin / "chmod"
+    chmod_shim.write_text(
+        f"""#!/usr/bin/env bash
+# Pass through all args to real chmod unless target matches staging prefix
+for arg in "$@"; do
+    case "$arg" in
+        {staging_prefix}*)
+            exit 1
+            ;;
+    esac
+done
+exec /usr/bin/chmod "$@"
+"""
+    )
+    chmod_shim.chmod(0o755)
+    return chmod_shim, controlled_bin
+
+
+def _make_mv_shim(tmp_path: Path, staging_prefix: str) -> tuple[Path, Path]:
+    """Create an mv shim that fails when the source matches staging_prefix.
+
+    Returns (shim_path, controlled_bin_dir).
+    """
+    controlled_bin = tmp_path / "mv_shim_bin"
+    controlled_bin.mkdir(parents=True, exist_ok=True)
+
+    for cmd in [
+        "bash",
+        "curl",
+        "tar",
+        "sha256sum",
+        "shasum",
+        "cp",
+        "chmod",
+        "rm",
+        "mkdir",
+        "head",
+        "sed",
+        "awk",
+        "command",
+        "dirname",
+        "pwd",
+        "mktemp",
+        "cat",
+        "echo",
+    ]:
+        path = subprocess.run(
+            ["bash", "-c", f"command -v {cmd} 2>/dev/null"],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if path:
+            link = controlled_bin / cmd
+            if not link.exists():
+                link.symlink_to(path)
+
+    mv_shim = controlled_bin / "mv"
+    mv_shim.write_text(
+        f"""#!/usr/bin/env bash
+# Fail if source arg matches staging prefix
+for arg in "$@"; do
+    case "$arg" in
+        {staging_prefix}*)
+            exit 1
+            ;;
+    esac
+done
+exec /usr/bin/mv "$@"
+"""
+    )
+    mv_shim.chmod(0o755)
+    return mv_shim, controlled_bin
+
+
+# ===========================================================================
+# BT4-01: Destination chmod failure cleans staging
+# ===========================================================================
+
+
+class TestBT401DestinationChmodFailureCleansStaging:
+    """Execute the real installer with a valid candidate and a PATH shim that
+    fails chmod for the destination staging path. Assert nonzero exit, no
+    staging file, no new FINAL_BIN, and no unrelated leftovers."""
+
+    def test_chmod_failure_cleans_staging(self, tmp_path: Path) -> None:
+        install_dir = tmp_path / "installdir"
+        genuine_script = '#!/usr/bin/env bash\necho "1.7.12"\n'
+        fake_tarball = _make_valid_tarball(
+            tmp_path / "src", "actionlint_1.7.12_linux_amd64.tar.gz", genuine_script
+        )
+        actual_sha = hashlib.sha256(fake_tarball.read_bytes()).hexdigest()
+
+        # Create chmod shim that fails for staging files
+        staging_prefix = str(install_dir) + "/.actionlint.tmp."
+        _, controlled_bin = _make_chmod_shim(tmp_path / "shims", staging_prefix)
+
+        result = subprocess.run(
+            ["bash", str(INSTALL_SCRIPT), str(install_dir)],
+            capture_output=True,
+            text=True,
+            env={
+                "PATH": str(controlled_bin),
+                "HOME": os.environ.get("HOME", "/tmp"),
+                "ACTIONLINT_TEST_HARNESS": "1",
+                "ACTIONLINT_TEST_OS": "Linux",
+                "ACTIONLINT_TEST_ARCH": "x86_64",
+                "ACTIONLINT_TEST_URL": f"file://{fake_tarball}",
+                "ACTIONLINT_TEST_SHA256": actual_sha,
+            },
+            cwd=str(REPO_ROOT),
+            timeout=30,
+        )
+        assert result.returncode != 0, "chmod failure must cause nonzero exit"
+        # No staging file should remain
+        leftovers = list(install_dir.glob(".actionlint.tmp.*")) if install_dir.exists() else []
+        assert len(leftovers) == 0, f"Staging files remain: {leftovers}"
+        # No FINAL_BIN should exist (failed before successful mv)
+        assert not (install_dir / "actionlint").exists(), (
+            "No FINAL_BIN should exist after chmod failure"
+        )
+
+
+# ===========================================================================
+# BT4-02: Destination mv failure cleans staging
+# ===========================================================================
+
+
+class TestBT402DestinationMvFailureCleansStaging:
+    """Execute the real installer with a valid candidate and a PATH shim that
+    fails only the final destination mv. Assert nonzero exit and no staging."""
+
+    def test_mv_failure_cleans_staging(self, tmp_path: Path) -> None:
+        install_dir = tmp_path / "installdir"
+        genuine_script = '#!/usr/bin/env bash\necho "1.7.12"\n'
+        fake_tarball = _make_valid_tarball(
+            tmp_path / "src2", "actionlint_1.7.12_linux_amd64.tar.gz", genuine_script
+        )
+        actual_sha = hashlib.sha256(fake_tarball.read_bytes()).hexdigest()
+
+        staging_prefix = str(install_dir) + "/.actionlint.tmp."
+        _, controlled_bin = _make_mv_shim(tmp_path / "shims2", staging_prefix)
+
+        result = subprocess.run(
+            ["bash", str(INSTALL_SCRIPT), str(install_dir)],
+            capture_output=True,
+            text=True,
+            env={
+                "PATH": str(controlled_bin),
+                "HOME": os.environ.get("HOME", "/tmp"),
+                "ACTIONLINT_TEST_HARNESS": "1",
+                "ACTIONLINT_TEST_OS": "Linux",
+                "ACTIONLINT_TEST_ARCH": "x86_64",
+                "ACTIONLINT_TEST_URL": f"file://{fake_tarball}",
+                "ACTIONLINT_TEST_SHA256": actual_sha,
+            },
+            cwd=str(REPO_ROOT),
+            timeout=30,
+        )
+        assert result.returncode != 0, "mv failure must cause nonzero exit"
+        leftovers = list(install_dir.glob(".actionlint.tmp.*")) if install_dir.exists() else []
+        assert len(leftovers) == 0, f"Staging files remain: {leftovers}"
+
+
+# ===========================================================================
+# BT4-03: Existing trusted binary survives stage failures
+# ===========================================================================
+
+
+class TestBT403ExistingTrustedBinarySurvivesStageFailures:
+    """Repeat controlled destination chmod and mv failures with an existing
+    FINAL_BIN. Assert its content digest, executable mode, and path are
+    unchanged after each failure."""
+
+    def _setup_trusted_binary(self, install_dir: Path) -> str:
+        """Place a pre-existing trusted binary and return its SHA-256."""
+        install_dir.mkdir(parents=True, exist_ok=True)
+        trusted_bin = install_dir / "actionlint"
+        trusted_content = "#!/usr/bin/env bash\necho 'trusted-binary'\n"
+        trusted_bin.write_text(trusted_content)
+        trusted_bin.chmod(0o755)
+        return hashlib.sha256(trusted_bin.read_bytes()).hexdigest()
+
+    def test_chmod_failure_preserves_trusted_binary(self, tmp_path: Path) -> None:
+        install_dir = tmp_path / "installdir"
+        trusted_hash = self._setup_trusted_binary(install_dir)
+
+        genuine_script = '#!/usr/bin/env bash\necho "1.7.12"\n'
+        fake_tarball = _make_valid_tarball(
+            tmp_path / "src3", "actionlint_1.7.12_linux_amd64.tar.gz", genuine_script
+        )
+        actual_sha = hashlib.sha256(fake_tarball.read_bytes()).hexdigest()
+
+        staging_prefix = str(install_dir) + "/.actionlint.tmp."
+        _, controlled_bin = _make_chmod_shim(tmp_path / "shims3", staging_prefix)
+
+        result = subprocess.run(
+            ["bash", str(INSTALL_SCRIPT), str(install_dir)],
+            capture_output=True,
+            text=True,
+            env={
+                "PATH": str(controlled_bin),
+                "HOME": os.environ.get("HOME", "/tmp"),
+                "ACTIONLINT_TEST_HARNESS": "1",
+                "ACTIONLINT_TEST_OS": "Linux",
+                "ACTIONLINT_TEST_ARCH": "x86_64",
+                "ACTIONLINT_TEST_URL": f"file://{fake_tarball}",
+                "ACTIONLINT_TEST_SHA256": actual_sha,
+            },
+            cwd=str(REPO_ROOT),
+            timeout=30,
+        )
+        assert result.returncode != 0
+        trusted_bin = install_dir / "actionlint"
+        assert trusted_bin.exists(), "Trusted binary must survive chmod failure"
+        actual_hash = hashlib.sha256(trusted_bin.read_bytes()).hexdigest()
+        assert actual_hash == trusted_hash, "Trusted binary content unchanged"
+        perms = stat.S_IMODE(trusted_bin.stat().st_mode)
+        assert perms & stat.S_IXUSR, "Trusted binary remains executable"
+
+    def test_mv_failure_preserves_trusted_binary(self, tmp_path: Path) -> None:
+        install_dir = tmp_path / "installdir"
+        trusted_hash = self._setup_trusted_binary(install_dir)
+
+        genuine_script = '#!/usr/bin/env bash\necho "1.7.12"\n'
+        fake_tarball = _make_valid_tarball(
+            tmp_path / "src4", "actionlint_1.7.12_linux_amd64.tar.gz", genuine_script
+        )
+        actual_sha = hashlib.sha256(fake_tarball.read_bytes()).hexdigest()
+
+        staging_prefix = str(install_dir) + "/.actionlint.tmp."
+        _, controlled_bin = _make_mv_shim(tmp_path / "shims4", staging_prefix)
+
+        result = subprocess.run(
+            ["bash", str(INSTALL_SCRIPT), str(install_dir)],
+            capture_output=True,
+            text=True,
+            env={
+                "PATH": str(controlled_bin),
+                "HOME": os.environ.get("HOME", "/tmp"),
+                "ACTIONLINT_TEST_HARNESS": "1",
+                "ACTIONLINT_TEST_OS": "Linux",
+                "ACTIONLINT_TEST_ARCH": "x86_64",
+                "ACTIONLINT_TEST_URL": f"file://{fake_tarball}",
+                "ACTIONLINT_TEST_SHA256": actual_sha,
+            },
+            cwd=str(REPO_ROOT),
+            timeout=30,
+        )
+        assert result.returncode != 0
+        trusted_bin = install_dir / "actionlint"
+        assert trusted_bin.exists(), "Trusted binary must survive mv failure"
+        actual_hash = hashlib.sha256(trusted_bin.read_bytes()).hexdigest()
+        assert actual_hash == trusted_hash, "Trusted binary content unchanged"
+
+
+# ===========================================================================
+# BT4-04: Successful atomic replacement leaves no staging remnants
+# ===========================================================================
+
+
+class TestBT404SuccessfulReplacementNoRemnants:
+    """Execute the valid local-candidate happy path, assert FINAL_BIN is the
+    validated replacement with executable permissions, and assert no
+    .actionlint temporary files remain."""
+
+    def test_success_leaves_no_staging(self, tmp_path: Path) -> None:
+        install_dir = tmp_path / "installdir"
+        genuine_script = '#!/usr/bin/env bash\necho "1.7.12"\n'
+        fake_tarball = _make_valid_tarball(
+            tmp_path / "src5", "actionlint_1.7.12_linux_amd64.tar.gz", genuine_script
+        )
+        actual_sha = hashlib.sha256(fake_tarball.read_bytes()).hexdigest()
+        result = _run_script(
+            [str(INSTALL_SCRIPT), str(install_dir)],
+            env={
+                "ACTIONLINT_TEST_HARNESS": "1",
+                "ACTIONLINT_TEST_OS": "Linux",
+                "ACTIONLINT_TEST_ARCH": "x86_64",
+                "ACTIONLINT_TEST_URL": f"file://{fake_tarball}",
+                "ACTIONLINT_TEST_SHA256": actual_sha,
+            },
+        )
+        assert result.returncode == 0, f"Should succeed: {result.stderr}"
+        installed = install_dir / "actionlint"
+        assert installed.exists(), "FINAL_BIN must exist"
+        perms = stat.S_IMODE(installed.stat().st_mode)
+        assert perms & stat.S_IXUSR, "Must be executable"
+        leftovers = list(install_dir.glob(".actionlint.tmp.*"))
+        assert len(leftovers) == 0, f"Staging remnants: {leftovers}"
+
+
+# ===========================================================================
+# BT4-05: Cleanup handles interruption signal
+# ===========================================================================
+
+
+class TestBT405CleanupHandlesInterruptionSignal:
+    """Exercise the cleanup function under a controlled TERM after destination
+    staging creation and prove no staging file remains and an existing
+    FINAL_BIN is unchanged. Since direct signal injection would be flaky, we
+    factor the cleanup into a sourceable/testable shell function and execute
+    that behavior deterministically."""
+
+    def test_cleanup_function_removes_staging_and_preserves_trusted(self, tmp_path: Path) -> None:
+        """Source the cleanup function and invoke it after creating a staging
+        file and existing trusted binary. Assert cleanup removes staging but
+        not the trusted binary."""
+        install_dir = tmp_path / "installdir"
+        install_dir.mkdir(parents=True)
+
+        # Create a trusted binary
+        trusted_bin = install_dir / "actionlint"
+        trusted_content = "#!/usr/bin/env bash\necho 'trusted'\n"
+        trusted_bin.write_text(trusted_content)
+        trusted_bin.chmod(0o755)
+        trusted_hash = hashlib.sha256(trusted_bin.read_bytes()).hexdigest()
+
+        # Create a staging file (simulating mid-install)
+        staging = Path(
+            subprocess.run(
+                ["bash", "-c", f"mktemp '{install_dir}/.actionlint.tmp.XXXXXX'"],
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+        )
+        assert staging.exists(), "Staging file should exist"
+        staging.write_text("candidate")
+
+        # Create a TMPDIR
+        fake_tmpdir = tmp_path / "fake_tmpdir"
+        fake_tmpdir.mkdir()
+        (fake_tmpdir / "download.tar.gz").write_text("download")
+
+        # Source the cleanup function from install_actionlint.sh and run it
+        # The cleanup function references TMPDIR and ATOMIC_TMP variables
+        cleanup_test = f"""
+        TMPDIR="{fake_tmpdir}"
+        ATOMIC_TMP="{staging}"
+        FINAL_BIN="{trusted_bin}"
+        # Extract and define the _cleanup function
+        source <(sed -n '/^_cleanup()/,/^}}/p' "{INSTALL_SCRIPT}")
+        _cleanup
+        """
+        subprocess.run(
+            ["bash", "-c", cleanup_test],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        # _cleanup calls exit; we don't assert on its returncode since
+        # the key assertions are about filesystem state below.
+
+        # Staging file should be gone
+        assert not staging.exists(), "Cleanup must remove the staging file"
+        # TMPDIR should be gone
+        assert not fake_tmpdir.exists(), "Cleanup must remove TMPDIR"
+        # Trusted binary must survive
+        assert trusted_bin.exists(), "Trusted binary must survive cleanup"
+        actual_hash = hashlib.sha256(trusted_bin.read_bytes()).hexdigest()
+        assert actual_hash == trusted_hash, "Trusted binary content unchanged"
+
+    def test_cleanup_tolerates_empty_and_nonexistent_paths(self, tmp_path: Path) -> None:
+        """The cleanup function must tolerate unset, empty, and nonexistent
+        paths without error."""
+        cleanup_test = f"""
+        TMPDIR=""
+        ATOMIC_TMP=""
+        FINAL_BIN="{tmp_path}/nonexistent"
+        source <(sed -n '/^_cleanup()/,/^}}/p' "{INSTALL_SCRIPT}")
+        _cleanup
+        exit 0
+        """
+        result = subprocess.run(
+            ["bash", "-c", cleanup_test],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0, f"Cleanup must tolerate empty paths: {result.stderr}"

@@ -288,7 +288,25 @@ if _test_overrides_allowed && [ -n "${ACTIONLINT_TEST_SHA256:-}" ]; then
 fi
 
 TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR"' EXIT
+ATOMIC_TMP=''
+
+# FIX4-A: Single cleanup function that removes the download/extraction
+# TMPDIR and any still-active destination staging file. Tolerates unset,
+# empty, nonexistent, and partially created paths. Never removes FINAL_BIN
+# or any pre-existing trusted binary.
+_cleanup() {
+    local rc=$?
+    if [ -n "${TMPDIR:-}" ] && [ -d "${TMPDIR:-}" ]; then
+        rm -rf -- "$TMPDIR" 2>/dev/null || true
+    fi
+    if [ -n "${ATOMIC_TMP:-}" ] && [ -e "${ATOMIC_TMP:-}" ]; then
+        rm -f -- "$ATOMIC_TMP" 2>/dev/null || true
+    fi
+    exit "$rc"
+}
+trap _cleanup EXIT
+trap _cleanup INT
+trap _cleanup TERM
 
 # --- Download ---
 echo "[install_actionlint] Downloading from ${DOWNLOAD_URL}..." >&2
@@ -325,25 +343,30 @@ if ! parse_and_verify_version "$CANDIDATE_BIN" "$ACTIONLINT_VERSION"; then
 fi
 echo "[install_actionlint] Version verified (exact match): ${ACTIONLINT_VERSION}" >&2
 
-# --- FIX3-B: Atomic install ---
-# Copy candidate to a temp file inside the destination filesystem, set
-# executable permissions, then rename into the final path.  On failure,
-# any previously trusted binary remains unchanged.
+# --- FIX4-A: Atomic install with mktemp staging and managed cleanup ---
+# Copy candidate to an unpredictable temp file inside the destination
+# filesystem (same fs as FINAL_BIN for atomic rename), set executable
+# permissions, then rename into the final path.
 mkdir -p "$INSTALL_DIR"
 
-ATOMIC_TMP="${INSTALL_DIR}/.actionlint.tmp.$$"
+ATOMIC_TMP="$(mktemp "${INSTALL_DIR}/.actionlint.tmp.XXXXXX")"
 if ! cp "$CANDIDATE_BIN" "$ATOMIC_TMP"; then
     echo "FAIL: Could not stage candidate for atomic install" >&2
-    rm -f "$ATOMIC_TMP"
     exit 1
 fi
-chmod +x "$ATOMIC_TMP"
+if ! chmod +x "$ATOMIC_TMP"; then
+    echo "FAIL: Could not set executable permissions on staging file" >&2
+    exit 1
+fi
 
 if ! mv -f "$ATOMIC_TMP" "$FINAL_BIN"; then
     echo "FAIL: Could not atomically install actionlint" >&2
-    rm -f "$ATOMIC_TMP"
     exit 1
 fi
+
+# Clear staging variable so the EXIT trap cleanup does not remove the
+# freshly installed binary.
+ATOMIC_TMP=''
 
 echo "[install_actionlint] Installed actionlint to ${FINAL_BIN}" >&2
 # Only stdout line: the install directory path
