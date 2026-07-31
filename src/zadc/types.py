@@ -347,6 +347,8 @@ SliceId = Annotated[
 #: The exact ZADC Timestamp v0.1 regex pattern with numeric ranges.
 #:
 #: Constrains:
+#: - All digits are ASCII [0-9] (not Unicode \d which accepts Arabic-Indic etc.)
+#: - Year: not 0000 (rejected by pinned RFC 3339 format validator)
 #: - Hour: 00-23 (rejects 24+)
 #: - Minute: 00-59 (rejects 60+)
 #: - Second: 00-59 (rejects 60+, i.e. leap seconds)
@@ -358,10 +360,10 @@ SliceId = Annotated[
 #: - -00:00 (handled by the not constraint below)
 #: - Invalid calendar dates (handled by format: date-time + FormatChecker)
 TIMESTAMP_V0_1_PATTERN = (
-    r"^\d{4}-\d{2}-\d{2}T"
-    r"(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d"
-    r"(?:\.\d{1,6})?"
-    r"(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$"
+    r"^(?!0000)[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+    r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
+    r"(?:\.[0-9]{1,6})?"
+    r"(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$"
 )
 
 #: Compiled timestamp regex for runtime fullmatch.

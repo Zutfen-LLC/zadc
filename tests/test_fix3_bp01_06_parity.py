@@ -542,6 +542,11 @@ PARITY_CASES_TIMESTAMP: list[tuple[str, bool, str]] = [
     ("2026-07-31T12:00:00.1234567Z", False, "7-digit fraction"),
     ("20260731T120000Z", False, "basic form"),
     ("2026-W31-1T12:00:00Z", False, "week date"),
+    # Non-ASCII digits (Unicode \d bypass — must use [0-9] not \d)
+    ("\u0662\u0660\u0662\u0666-07-31T12:00:00Z", False, "Arabic-Indic year digits"),
+    ("2026-0\u0667-31T12:00:00Z", False, "Arabic-Indic month digit"),
+    ("2026-07-31T1\u0662:00:00Z", False, "Arabic-Indic hour digit"),
+    ("0000-01-01T00:00:00Z", False, "year 0000"),
 ]
 
 
