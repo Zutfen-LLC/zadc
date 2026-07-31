@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import signal
 import stat
 import subprocess
 import tarfile
@@ -943,32 +944,33 @@ class TestBT404SuccessfulReplacementNoRemnants:
 
 
 # ===========================================================================
-# BT4-05: Cleanup handles interruption signal
+# BT4-05: Cleanup handles interruption signal (SIGINT/SIGTERM)
 # ===========================================================================
 
 
 class TestBT405CleanupHandlesInterruptionSignal:
-    """Exercise the cleanup function under a controlled TERM after destination
-    staging creation and prove no staging file remains and an existing
-    FINAL_BIN is unchanged. Since direct signal injection would be flaky, we
-    factor the cleanup into a sourceable/testable shell function and execute
-    that behavior deterministically."""
+    """Exercise the real signal handlers under controlled SIGINT and SIGTERM
+    after destination staging creation. Assert explicit exit status (130 for
+    SIGINT, 143 for SIGTERM), staging file removed, TMPDIR removed, existing
+    trusted binary unchanged, and cleanup runs only once."""
 
-    def test_cleanup_function_removes_staging_and_preserves_trusted(self, tmp_path: Path) -> None:
-        """Source the cleanup function and invoke it after creating a staging
-        file and existing trusted binary. Assert cleanup removes staging but
-        not the trusted binary."""
+    @staticmethod
+    def _build_signal_harness(tmp_path: Path) -> tuple[Path, Path, str, Path]:
+        """Create a test harness that simulates the installer's mid-install
+        state, registers the real signal handlers, then waits for a signal.
+
+        Returns (trusted_bin, staging_file, tmpdir_str, marker_file).
+        The marker file is used to detect double-cleanup.
+        """
         install_dir = tmp_path / "installdir"
         install_dir.mkdir(parents=True)
 
-        # Create a trusted binary
+        # Trusted binary
         trusted_bin = install_dir / "actionlint"
-        trusted_content = "#!/usr/bin/env bash\necho 'trusted'\n"
-        trusted_bin.write_text(trusted_content)
+        trusted_bin.write_text("#!/usr/bin/env bash\necho 'trusted'\n")
         trusted_bin.chmod(0o755)
-        trusted_hash = hashlib.sha256(trusted_bin.read_bytes()).hexdigest()
 
-        # Create a staging file (simulating mid-install)
+        # Staging file (simulates mid-install)
         staging = Path(
             subprocess.run(
                 ["bash", "-c", f"mktemp '{install_dir}/.actionlint.tmp.XXXXXX'"],
@@ -976,41 +978,178 @@ class TestBT405CleanupHandlesInterruptionSignal:
                 text=True,
             ).stdout.strip()
         )
-        assert staging.exists(), "Staging file should exist"
         staging.write_text("candidate")
 
-        # Create a TMPDIR
-        fake_tmpdir = tmp_path / "fake_tmpdir"
-        fake_tmpdir.mkdir()
-        (fake_tmpdir / "download.tar.gz").write_text("download")
+        # TMPDIR (simulates download dir)
+        tmpdir = tmp_path / "fake_tmpdir"
+        tmpdir.mkdir()
+        (tmpdir / "download.tar.gz").write_text("download")
 
-        # Source the cleanup function from install_actionlint.sh and run it
-        # The cleanup function references TMPDIR and ATOMIC_TMP variables
-        cleanup_test = f"""
-        TMPDIR="{fake_tmpdir}"
+        # Marker to detect double-cleanup
+        marker = tmp_path / "cleanup_count"
+
+        return trusted_bin, staging, str(tmpdir), marker
+
+    def test_sigint_exits_130_and_cleans(self, tmp_path: Path) -> None:
+        """SIGINT during staging must exit 130, remove staging+TMPDIR,
+        preserve trusted binary."""
+        trusted_bin, staging, tmpdir_str, _ = self._build_signal_harness(tmp_path)
+        trusted_hash = hashlib.sha256(trusted_bin.read_bytes()).hexdigest()
+
+        # Build a script that registers the REAL handlers from the installer,
+        # sets up staging state, then sleeps until killed.
+        harness = f"""
+        set -euo pipefail
+        TMPDIR="{tmpdir_str}"
         ATOMIC_TMP="{staging}"
         FINAL_BIN="{trusted_bin}"
-        # Extract and define the _cleanup function
-        source <(sed -n '/^_cleanup()/,/^}}/p' "{INSTALL_SCRIPT}")
-        _cleanup
-        """
-        subprocess.run(
-            ["bash", "-c", cleanup_test],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        # _cleanup calls exit; we don't assert on its returncode since
-        # the key assertions are about filesystem state below.
 
-        # Staging file should be gone
-        assert not staging.exists(), "Cleanup must remove the staging file"
-        # TMPDIR should be gone
-        assert not fake_tmpdir.exists(), "Cleanup must remove TMPDIR"
-        # Trusted binary must survive
-        assert trusted_bin.exists(), "Trusted binary must survive cleanup"
+        # Source the real handler functions from install_actionlint.sh
+        eval "$(sed -n '/^_cleanup_files()/,/^}}/p' '{INSTALL_SCRIPT}')"
+        eval "$(sed -n '/^_on_exit()/,/^}}/p' '{INSTALL_SCRIPT}')"
+        eval "$(sed -n '/^_on_int()/,/^}}/p' '{INSTALL_SCRIPT}')"
+        eval "$(sed -n '/^_on_term()/,/^}}/p' '{INSTALL_SCRIPT}')"
+
+        trap _on_exit EXIT
+        trap _on_int INT
+        trap _on_term TERM
+
+        # Signal readiness, then wait for signal
+        echo "READY"
+        sleep 30 &
+        wait
+        """
+        proc = subprocess.Popen(
+            ["bash", "-c", harness],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        # Wait for readiness
+        line = proc.stdout.readline().strip() if proc.stdout else ""
+        assert line == "READY", "Harness should signal readiness"
+        # Send SIGINT
+        proc.send_signal(signal.SIGINT)
+        proc.wait(timeout=10)
+
+        assert proc.returncode == 130, f"SIGINT must exit 130, got {proc.returncode}"
+        assert not staging.exists(), "Staging file must be removed on SIGINT"
+        assert not Path(tmpdir_str).exists(), "TMPDIR must be removed on SIGINT"
+        assert trusted_bin.exists(), "Trusted binary must survive SIGINT"
         actual_hash = hashlib.sha256(trusted_bin.read_bytes()).hexdigest()
         assert actual_hash == trusted_hash, "Trusted binary content unchanged"
+
+    def test_sigterm_exits_143_and_cleans(self, tmp_path: Path) -> None:
+        """SIGTERM during staging must exit 143, remove staging+TMPDIR,
+        preserve trusted binary."""
+        trusted_bin, staging, tmpdir_str, _ = self._build_signal_harness(tmp_path)
+        trusted_hash = hashlib.sha256(trusted_bin.read_bytes()).hexdigest()
+
+        harness = f"""
+        set -euo pipefail
+        TMPDIR="{tmpdir_str}"
+        ATOMIC_TMP="{staging}"
+        FINAL_BIN="{trusted_bin}"
+
+        eval "$(sed -n '/^_cleanup_files()/,/^}}/p' '{INSTALL_SCRIPT}')"
+        eval "$(sed -n '/^_on_exit()/,/^}}/p' '{INSTALL_SCRIPT}')"
+        eval "$(sed -n '/^_on_int()/,/^}}/p' '{INSTALL_SCRIPT}')"
+        eval "$(sed -n '/^_on_term()/,/^}}/p' '{INSTALL_SCRIPT}')"
+
+        trap _on_exit EXIT
+        trap _on_int INT
+        trap _on_term TERM
+
+        echo "READY"
+        sleep 30 &
+        wait
+        """
+        proc = subprocess.Popen(
+            ["bash", "-c", harness],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        line = proc.stdout.readline().strip() if proc.stdout else ""
+        assert line == "READY"
+        proc.send_signal(signal.SIGTERM)
+        proc.wait(timeout=10)
+
+        assert proc.returncode == 143, f"SIGTERM must exit 143, got {proc.returncode}"
+        assert not staging.exists(), "Staging file must be removed on SIGTERM"
+        assert not Path(tmpdir_str).exists(), "TMPDIR must be removed on SIGTERM"
+        assert trusted_bin.exists(), "Trusted binary must survive SIGTERM"
+        actual_hash = hashlib.sha256(trusted_bin.read_bytes()).hexdigest()
+        assert actual_hash == trusted_hash, "Trusted binary content unchanged"
+
+    def test_cleanup_runs_only_once_on_sigint(self, tmp_path: Path) -> None:
+        """Cleanup must run exactly once even if a second signal arrives
+        during cleanup (traps are disabled before cleanup)."""
+        trusted_bin, staging, tmpdir_str, marker = self._build_signal_harness(tmp_path)
+
+        # The harness counts how many times _cleanup_files executes by
+        # wrapping it in a counter.
+        harness = f"""
+        set -euo pipefail
+        TMPDIR="{tmpdir_str}"
+        ATOMIC_TMP="{staging}"
+        FINAL_BIN="{trusted_bin}"
+        CLEANUP_COUNT_FILE="{marker}"
+
+        eval "$(sed -n '/^_cleanup_files()/,/^}}/p' '{INSTALL_SCRIPT}')"
+
+        # Wrap to count invocations
+        _counted_cleanup() {{
+            local n=0
+            if [ -f "$CLEANUP_COUNT_FILE" ]; then
+                n=$(cat "$CLEANUP_COUNT_FILE")
+            fi
+            n=$((n + 1))
+            echo "$n" > "$CLEANUP_COUNT_FILE"
+            _cleanup_files
+        }}
+
+        _on_exit() {{
+            local rc=$?
+            trap - EXIT INT TERM
+            _counted_cleanup
+            exit "$rc"
+        }}
+        _on_int() {{
+            trap - EXIT INT TERM
+            _counted_cleanup
+            exit 130
+        }}
+        _on_term() {{
+            trap - EXIT INT TERM
+            _counted_cleanup
+            exit 143
+        }}
+
+        trap _on_exit EXIT
+        trap _on_int INT
+        trap _on_term TERM
+
+        echo "READY"
+        sleep 30 &
+        wait
+        """
+        proc = subprocess.Popen(
+            ["bash", "-c", harness],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        line = proc.stdout.readline().strip() if proc.stdout else ""
+        assert line == "READY"
+        # Send SIGINT, then immediately SIGTERM (second signal during cleanup)
+        proc.send_signal(signal.SIGINT)
+        proc.send_signal(signal.SIGTERM)
+        proc.wait(timeout=10)
+
+        # Cleanup count must be exactly 1
+        count = int(marker.read_text().strip()) if marker.exists() else 0
+        assert count == 1, f"Cleanup must run exactly once, ran {count} times"
 
     def test_cleanup_tolerates_empty_and_nonexistent_paths(self, tmp_path: Path) -> None:
         """The cleanup function must tolerate unset, empty, and nonexistent
@@ -1019,9 +1158,10 @@ class TestBT405CleanupHandlesInterruptionSignal:
         TMPDIR=""
         ATOMIC_TMP=""
         FINAL_BIN="{tmp_path}/nonexistent"
-        source <(sed -n '/^_cleanup()/,/^}}/p' "{INSTALL_SCRIPT}")
-        _cleanup
-        exit 0
+        # Source the real _cleanup_files and handlers
+        eval "$(sed -n '/^_cleanup_files()/,/^}}/p' '{INSTALL_SCRIPT}')"
+        eval "$(sed -n '/^_on_exit()/,/^}}/p' '{INSTALL_SCRIPT}')"
+        _on_exit
         """
         result = subprocess.run(
             ["bash", "-c", cleanup_test],
@@ -1029,4 +1169,5 @@ class TestBT405CleanupHandlesInterruptionSignal:
             text=True,
             timeout=10,
         )
+        # _on_exit preserves the prior exit status (0 from eval) and exits with it
         assert result.returncode == 0, f"Cleanup must tolerate empty paths: {result.stderr}"

@@ -290,23 +290,44 @@ fi
 TMPDIR="$(mktemp -d)"
 ATOMIC_TMP=''
 
-# FIX4-A: Single cleanup function that removes the download/extraction
+# FIX4-A: Single file-cleanup function that removes the download/extraction
 # TMPDIR and any still-active destination staging file. Tolerates unset,
 # empty, nonexistent, and partially created paths. Never removes FINAL_BIN
-# or any pre-existing trusted binary.
-_cleanup() {
-    local rc=$?
+# or any pre-existing trusted binary. Called by every signal handler below.
+_cleanup_files() {
     if [ -n "${TMPDIR:-}" ] && [ -d "${TMPDIR:-}" ]; then
         rm -rf -- "$TMPDIR" 2>/dev/null || true
     fi
     if [ -n "${ATOMIC_TMP:-}" ] && [ -e "${ATOMIC_TMP:-}" ]; then
         rm -f -- "$ATOMIC_TMP" 2>/dev/null || true
     fi
+}
+
+# Separate signal handlers with explicit exit statuses.
+# Each handler disables all traps before calling _cleanup_files, so cleanup
+# runs exactly once even if a second signal arrives during cleanup.
+_on_exit() {
+    local rc=$?
+    trap - EXIT INT TERM
+    _cleanup_files
     exit "$rc"
 }
-trap _cleanup EXIT
-trap _cleanup INT
-trap _cleanup TERM
+
+_on_int() {
+    trap - EXIT INT TERM
+    _cleanup_files
+    exit 130
+}
+
+_on_term() {
+    trap - EXIT INT TERM
+    _cleanup_files
+    exit 143
+}
+
+trap _on_exit EXIT
+trap _on_int INT
+trap _on_term TERM
 
 # --- Download ---
 echo "[install_actionlint] Downloading from ${DOWNLOAD_URL}..." >&2
