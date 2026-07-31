@@ -10,6 +10,7 @@ That is an intentional design constraint for v0.1.
 """
 
 from datetime import UTC, datetime
+from typing import Optional
 
 from pydantic import (
     BaseModel,
@@ -64,9 +65,9 @@ class ProducerIdentity(_ZadcModel):
 
     actor_type: ActorType
     actor_id: StableId
-    run_id: StableId | None = None
-    model: str | None = None
-    provider: str | None = None
+    run_id: Optional[StableId] = None
+    model: Optional[str] = None
+    provider: Optional[str] = None
 
 
 class PolicyReference(_ZadcModel):
@@ -93,7 +94,7 @@ class Provenance(_ZadcModel):
     """
 
     parent_artifact_ids: list[StableId] = Field(default_factory=list)
-    content_digest: Sha256Digest | None = None
+    content_digest: Optional[Sha256Digest] = None
 
 
 class ArtifactEnvelope(_ZadcModel):

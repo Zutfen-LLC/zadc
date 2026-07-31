@@ -78,6 +78,7 @@ src = ["src", "tests", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["UP045", "UP007"]  # Don't convert Optional[X] to X | None (pydantic compat)
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]  # allow asserts in tests if needed
