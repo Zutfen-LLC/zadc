@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Pre-commit hook for ZADC.
+# Runs the same quality gate as `make check`.
+# Does not require a globally installed pre-commit framework.
+#
+# Fail-closed: if uv (or any other required prerequisite) is missing, the hook
+# aborts the commit with an actionable nonzero error rather than silently
+# waiving checks.
+
+set -euo pipefail
+
+echo "[zadc pre-commit] Running make check..."
+
+# Find the repository root from the hook location
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$HOOK_DIR/.." && pwd)"
+
+cd "$REPO_ROOT"
+
+# Fail closed: uv must be available to run quality checks.
+if ! command -v uv >/dev/null 2>&1; then
+    echo "[zadc pre-commit] FAIL: uv is not installed or not on PATH." >&2
+    echo "  Quality checks cannot run without uv. Aborting commit." >&2
+    echo "  Install uv: https://docs.astral.sh/uv/getting-started/installation/" >&2
+    echo "  Then run 'make sync' and retry." >&2
+    exit 1
+fi
+
+# Fail closed: make must be available.
+if ! command -v make >/dev/null 2>&1; then
+    echo "[zadc pre-commit] FAIL: make is not installed or not on PATH." >&2
+    echo "  Quality checks cannot run without make. Aborting commit." >&2
+    exit 1
+fi
+
+if make check 2>&1; then
+    echo "[zadc pre-commit] OK: All checks passed"
+    exit 0
+else
+    echo "[zadc pre-commit] FAIL: Checks failed. Fix errors before committing." >&2
+    exit 1
+fi

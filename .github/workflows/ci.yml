@@ -1,0 +1,195 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  workflow-lint:
+    name: workflow-lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Assert checked-out HEAD matches event subject SHA
+        run: |
+          EXPECTED="${{ github.event.pull_request.head.sha || github.sha }}"
+          ACTUAL="$(git rev-parse HEAD)"
+          echo "Expected subject SHA: $EXPECTED"
+          echo "Actual HEAD:          $ACTUAL"
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "FAIL: HEAD ($ACTUAL) does not match the exact PR source-head SHA ($EXPECTED)"
+            exit 1
+          fi
+          echo "OK: HEAD matches exact subject SHA"
+
+      - name: Install actionlint (pinned v1.7.12, SHA-256 verified)
+        run: bash scripts/install_actionlint.sh "$PWD/.tools/bin" >> "$GITHUB_PATH"
+
+      - name: Run actionlint
+        run: actionlint
+
+      - name: Install uv (pinned)
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          enable-cache: true
+          version: "0.8.13"
+
+      - name: Sync dependencies (frozen)
+        run: uv sync --frozen --extra dev
+
+      - name: Run zizmor (uv-locked)
+        run: uv run zizmor .github/workflows/
+
+      - name: Verify workflow patterns
+        run: bash scripts/verify_workflows.sh
+
+  quality:
+    name: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Assert checked-out HEAD matches event subject SHA
+        run: |
+          EXPECTED="${{ github.event.pull_request.head.sha || github.sha }}"
+          ACTUAL="$(git rev-parse HEAD)"
+          echo "Expected subject SHA: $EXPECTED"
+          echo "Actual HEAD:          $ACTUAL"
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "FAIL: HEAD ($ACTUAL) does not match the exact PR source-head SHA ($EXPECTED)"
+            exit 1
+          fi
+          echo "OK: HEAD matches exact subject SHA"
+
+      - name: Install uv (pinned)
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          enable-cache: true
+          version: "0.8.13"
+
+      - name: Verify lock file is frozen
+        run: uv lock --check
+
+      - name: Sync dependencies
+        run: uv sync --frozen --extra dev
+
+      - name: Ruff check
+        run: uv run ruff check src tests scripts
+
+      - name: Ruff format check
+        run: uv run ruff format --check src tests scripts
+
+      - name: Mypy strict
+        run: uv run mypy --strict src tests scripts
+
+  test:
+    name: "test (${{ matrix.python-version }})"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Assert checked-out HEAD matches event subject SHA
+        run: |
+          EXPECTED="${{ github.event.pull_request.head.sha || github.sha }}"
+          ACTUAL="$(git rev-parse HEAD)"
+          echo "Expected subject SHA: $EXPECTED"
+          echo "Actual HEAD:          $ACTUAL"
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "FAIL: HEAD ($ACTUAL) does not match the exact PR source-head SHA ($EXPECTED)"
+            exit 1
+          fi
+          echo "OK: HEAD matches exact subject SHA"
+
+      - name: Install uv (pinned)
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          enable-cache: true
+          version: "0.8.13"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Sync dependencies
+        run: uv sync --frozen --extra dev --python ${{ matrix.python-version }}
+
+      - name: Run pytest
+        run: uv run --python ${{ matrix.python-version }} python -m pytest
+
+  package:
+    name: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Assert checked-out HEAD matches event subject SHA
+        run: |
+          EXPECTED="${{ github.event.pull_request.head.sha || github.sha }}"
+          ACTUAL="$(git rev-parse HEAD)"
+          echo "Expected subject SHA: $EXPECTED"
+          echo "Actual HEAD:          $ACTUAL"
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "FAIL: HEAD ($ACTUAL) does not match the exact PR source-head SHA ($EXPECTED)"
+            exit 1
+          fi
+          echo "OK: HEAD matches exact subject SHA"
+
+      - name: Install uv (pinned)
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          enable-cache: true
+          version: "0.8.13"
+
+      - name: Sync dependencies
+        run: uv sync --frozen --extra dev
+
+      - name: Build wheel and sdist
+        run: uv build
+
+      - name: Twine check
+        run: uv run twine check dist/*
+
+      - name: Package smoke test
+        run: uv run python scripts/package_smoke.py
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
