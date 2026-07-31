@@ -16,7 +16,7 @@
             },
             {
               "if": {
-                "pattern": "^urn:uuid:"
+                "pattern": "^urn:[uU][uU][iI][dD]:"
               },
               "then": {
                 "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
@@ -52,7 +52,7 @@
             },
             {
               "if": {
-                "pattern": "^urn:uuid:"
+                "pattern": "^urn:[uU][uU][iI][dD]:"
               },
               "then": {
                 "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
@@ -107,7 +107,7 @@
                 },
                 {
                   "if": {
-                    "pattern": "^urn:uuid:"
+                    "pattern": "^urn:[uU][uU][iI][dD]:"
                   },
                   "then": {
                     "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
@@ -157,7 +157,7 @@
               },
               {
                 "if": {
-                  "pattern": "^urn:uuid:"
+                  "pattern": "^urn:[uU][uU][iI][dD]:"
                 },
                 "then": {
                   "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
@@ -190,7 +190,7 @@
         },
         {
           "if": {
-            "pattern": "^urn:uuid:"
+            "pattern": "^urn:[uU][uU][iI][dD]:"
           },
           "then": {
             "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
@@ -242,7 +242,7 @@
         },
         {
           "if": {
-            "pattern": "^urn:uuid:"
+            "pattern": "^urn:[uU][uU][iI][dD]:"
           },
           "then": {
             "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"

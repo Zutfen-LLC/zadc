@@ -62,7 +62,7 @@ class TestRawModelSchemaOwnsConstraints:
         all_of = aid["allOf"]
         uuid_cond = [i for i in all_of if "if" in i]
         assert len(uuid_cond) == 1
-        assert uuid_cond[0]["if"]["pattern"] == "^urn:uuid:"
+        assert uuid_cond[0]["if"]["pattern"] == "^urn:[uU][uU][iI][dD]:"
         assert "pattern" in uuid_cond[0]["then"]
 
     def test_raw_schema_has_timestamp_range_pattern(self) -> None:

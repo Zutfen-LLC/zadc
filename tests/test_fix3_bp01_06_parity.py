@@ -268,7 +268,10 @@ class TestFix3BP03UUIDConditional:
         "bad_uuid",
         [
             "urn:uuid:not-a-uuid",  # malformed text
-            "URN:UUID:00000000-0000-0000-0000-000000000001",  # uppercase prefix
+            "URN:UUID:00000000-0000-0000-0000-000000000001",  # uppercase scheme + prefix
+            "urn:UUID:00000000-0000-0000-0000-000000000001",  # mixed-case namespace UUID
+            "urn:Uuid:00000000-0000-0000-0000-000000000001",  # mixed-case namespace Uuid
+            "urn:uUiD:00000000-0000-0000-0000-000000000001",  # mixed-case namespace uUiD
             "urn:uuid:ABCDEF00-0000-0000-0000-000000000000",  # uppercase hex
             "urn:uuid:00000000000000000000000000000000",  # unhyphenated
             "urn:uuid:{00000000-0000-0000-0000-000000000001}",  # braced
@@ -285,6 +288,9 @@ class TestFix3BP03UUIDConditional:
         [
             "urn:uuid:not-a-uuid",
             "URN:UUID:00000000-0000-0000-0000-000000000001",
+            "urn:UUID:00000000-0000-0000-0000-000000000001",
+            "urn:Uuid:00000000-0000-0000-0000-000000000001",
+            "urn:uUiD:00000000-0000-0000-0000-000000000001",
             "urn:uuid:ABCDEF00-0000-0000-0000-000000000000",
             "urn:uuid:00000000000000000000000000000000",
             "urn:uuid:{00000000-0000-0000-0000-000000000001}",
@@ -495,6 +501,9 @@ PARITY_CASES_GLOBAL_ID: list[tuple[str, bool, str]] = [
     ("custom:path%0a", False, "lowercase hex 2"),
     ("custom:mix%20and%", False, "trailing incomplete"),
     ("urn:uuid:not-a-uuid", False, "malformed uuid"),
+    ("urn:UUID:00000000-0000-0000-0000-000000000001", False, "mixed-case namespace UUID"),
+    ("urn:Uuid:00000000-0000-0000-0000-000000000001", False, "mixed-case namespace Uuid"),
+    ("urn:uUiD:00000000-0000-0000-0000-000000000001", False, "mixed-case namespace uUiD"),
     ("urn:uuid:ABCDEF00-0000-0000-0000-000000000000", False, "uppercase hex uuid"),
     ("urn:uuid:00000000000000000000000000000000", False, "unhyphenated uuid"),
     ("urn:uuid:{00000000-0000-0000-0000-000000000001}", False, "braced uuid"),

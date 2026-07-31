@@ -224,8 +224,12 @@ def validate_global_id(value: str) -> str:
                 f"at position {colon_pos + 1 + idx} in scheme-specific part"
             )
 
-    # UUID URN canonical validation.
-    if scheme == "urn" and ssp.startswith("uuid:") and not _CANONICAL_UUID_URN_RE.match(value):
+    # UUID URN canonical validation — detect case-insensitively, require canonical lowercase.
+    if (
+        scheme == "urn"
+        and ssp[:5].lower() == "uuid:"
+        and not _CANONICAL_UUID_URN_RE.fullmatch(value)
+    ):
         raise ValueError(f"urn:uuid identifiers must be canonical lowercase: {value!r}")
 
     return value
@@ -269,7 +273,7 @@ class _GlobalIdJsonSchemaModifier:
                 "pattern": _GLOBAL_ID_BASE_PATTERN,
             },
             {
-                "if": {"pattern": "^urn:uuid:"},
+                "if": {"pattern": "^urn:[uU][uU][iI][dD]:"},
                 "then": {"pattern": _UUID_URN_PATTERN},
             },
         ]
