@@ -46,10 +46,10 @@ def main() -> int:
             print(f"FAIL: Could not create venv: {result.stderr}")
             return 1
 
-        # Install the wheel
+        # Install the wheel (with runtime dependencies)
         print(f"Installing {wheel.name}...")
         result = subprocess.run(
-            [venv_python, "-m", "pip", "install", str(wheel), "--no-deps"],
+            [venv_python, "-m", "pip", "install", str(wheel)],
             capture_output=True,
             text=True,
         )
@@ -57,7 +57,7 @@ def main() -> int:
             print(f"FAIL: pip install failed: {result.stderr}")
             return 1
 
-        # Test import
+        # Test import + version
         print("Testing import...")
         result = subprocess.run(
             [venv_python, "-c", "import zadc; print(zadc.get_version())"],
@@ -68,6 +68,49 @@ def main() -> int:
             print(f"FAIL: import zadc failed: {result.stderr}")
             return 1
         print(f"  import zadc -> {result.stdout.strip()}")
+
+        # Test full envelope workflow
+        print("Testing envelope workflow...")
+        workflow_code = (
+            "import zadc\n"
+            "from datetime import datetime, timezone\n"
+            "import json\n"
+            "env = zadc.ArtifactEnvelope(\n"
+            "    schema=zadc.SCHEMA_ID,\n"
+            "    contract_version=zadc.CONTRACT_VERSION,\n"
+            '    artifact_type="packet",\n'
+            '    artifact_id="urn:uuid:00000000-0000-0000-0000-000000000070",\n'
+            "    created_at=datetime(2026, 7, 31, 12, 0, 0, tzinfo=timezone.utc),\n"
+            "    producer=zadc.ProducerIdentity(\n"
+            '        actor_type="human", actor_id="zutfen:human:smoke"),\n'
+            '    project_id="zutfen:project:zadc",\n'
+            '    slice_id="SMOKE-001", slice_instance_id="SMOKE-001A",\n'
+            "    policy=zadc.PolicyReference(\n"
+            '        policy_id="zutfen:zadc-policy:standard@0.1.0",\n'
+            '        policy_source_sha="a" * 40,\n'
+            '        policy_digest="sha256:" + "b" * 64,\n'
+            "    ),\n"
+            "    provenance=zadc.Provenance(parent_artifact_ids=()),\n"
+            ")\n"
+            "sealed = zadc.seal_artifact(env)\n"
+            "assert sealed.provenance.content_digest is not None\n"
+            "data = json.loads(zadc.canonical_json_text(sealed))\n"
+            "reloaded = zadc.ArtifactEnvelope.model_validate(data)\n"
+            "zadc.verify_content_digest(reloaded)\n"
+            "print('WORKFLOW_OK')\n"
+        )
+        result = subprocess.run(
+            [venv_python, "-c", workflow_code],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print(f"FAIL: envelope workflow failed: {result.stderr}")
+            return 1
+        if "WORKFLOW_OK" not in result.stdout:
+            print(f"FAIL: envelope workflow did not print WORKFLOW_OK: {result.stdout}")
+            return 1
+        print("  envelope workflow -> WORKFLOW_OK")
 
         # Test --version
         print("Testing zadc --version...")
