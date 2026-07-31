@@ -1,12 +1,14 @@
 """Repository contract tests for ZADC-000.
 
 These tests verify the structural identity, required files, authoritative
-design digest, and forbidden patterns required by the packet.
+design digest, roadmap sequence, exact-head CI contract, deterministic tool
+pins, fail-closed workflow-lint, and fail-closed pre-commit hook.
 """
 
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 
 import pytest
@@ -78,6 +80,8 @@ class TestRequiredFoundationFiles:
             "scripts/setup-hooks.sh",
             "scripts/package_smoke.py",
             "scripts/verify_workflows.sh",
+            "scripts/install_actionlint.sh",
+            "scripts/run_workflow_lint.sh",
             ".githooks/pre-commit",
         ],
     )
@@ -158,3 +162,191 @@ class TestForbiddenWorkflowPatterns:
                         assert all(c in "0123456789abcdef" for c in sha.lower()), (
                             f"Action SHA not hex in {wf.name}: {ref}"
                         )
+
+
+class TestRoadmapSequence:
+    """Regression test: roadmap must match the authoritative slice sequence."""
+
+    EXPECTED_SEQUENCE = [
+        ("ZADC-000", "Universal Repository Bootstrap"),
+        ("ZADC-001A", "Canonical artifacts and rendering"),
+        ("ZADC-001B", "Workflow bundles and derived lifecycle"),
+        ("ZADC-001C", "Git subject and evidence validation"),
+        ("ZADC-001D", "GitHub and GitHub Actions reconciliation"),
+        ("ZADC-001E", "Review, correction, and human-decision workflow"),
+        ("ZADC-001F", "First live project dogfood"),
+        ("ZADC-002", "Engram provenance integration"),
+        ("ZADC-003", "Flowstate orchestration integration"),
+    ]
+
+    def test_roadmap_contains_exact_sequence(self) -> None:
+        """The roadmap headings must match the authorized sequence exactly."""
+        roadmap = (REPO_ROOT / "docs/roadmap.md").read_text()
+        for slice_id, title_fragment in self.EXPECTED_SEQUENCE:
+            # Each slice ID must appear as a heading
+            assert slice_id in roadmap, f"Roadmap missing required slice: {slice_id}"
+            # The title fragment must appear on the same heading line
+            heading_h3 = f"### {slice_id} — {title_fragment}"
+            heading_h2 = f"## {slice_id} — {title_fragment}"
+            assert heading_h3 in roadmap or heading_h2 in roadmap, (
+                f"Roadmap heading for {slice_id} must match: '{title_fragment}'"
+            )
+
+    def test_roadmap_preserves_order(self) -> None:
+        """Slice IDs must appear in the correct order in the roadmap."""
+        roadmap = (REPO_ROOT / "docs/roadmap.md").read_text()
+        positions: list[int] = []
+        for slice_id, _ in self.EXPECTED_SEQUENCE:
+            pos = roadmap.find(slice_id)
+            assert pos >= 0, f"Slice {slice_id} not found in roadmap"
+            positions.append(pos)
+        for i in range(1, len(positions)):
+            assert positions[i] > positions[i - 1], (
+                f"Roadmap order violation: "
+                f"{self.EXPECTED_SEQUENCE[i][0]} appears before "
+                f"{self.EXPECTED_SEQUENCE[i - 1][0]}"
+            )
+
+
+class TestExactHeadWorkflowContract:
+    """Verify CI and CodeQL checkout and assert the exact PR source-head SHA."""
+
+    def _read_ci(self) -> str:
+        return (REPO_ROOT / ".github/workflows/ci.yml").read_text()
+
+    def _read_codeql(self) -> str:
+        return (REPO_ROOT / ".github/workflows/codeql.yml").read_text()
+
+    def test_ci_checkouts_pr_head_sha(self) -> None:
+        """CI must use github.event.pull_request.head.sha for PR checkouts."""
+        ci = self._read_ci()
+        assert "github.event.pull_request.head.sha" in ci, (
+            "CI must checkout the exact PR source-head SHA"
+        )
+
+    def test_ci_preserves_required_context_names(self) -> None:
+        """Required CI context names must be preserved exactly."""
+        ci = self._read_ci()
+        required_names = [
+            "name: workflow-lint",
+            "name: quality",
+            'name: "test (${{ matrix.python-version }})"',
+            "name: package",
+        ]
+        for name in required_names:
+            assert name in ci, f"Required context name missing in ci.yml: {name}"
+
+    def test_ci_matrix_versions_preserved(self) -> None:
+        """CI test matrix must cover 3.11 through 3.14."""
+        ci = self._read_ci()
+        for version in ["3.11", "3.12", "3.13", "3.14"]:
+            assert f'"{version}"' in ci, f"Python {version} missing from CI matrix"
+
+    def test_every_ci_job_asserts_head_sha(self) -> None:
+        """Every CI job must assert git rev-parse HEAD matches expected SHA."""
+        ci = self._read_ci()
+        # Count checkout steps that use the exact PR head ref
+        checkout_ref_count = len(re.findall(r"ref: .*github\.event\.pull_request\.head\.sha", ci))
+        assert_count = ci.count("Assert checked-out HEAD matches event subject SHA")
+        assert assert_count == checkout_ref_count, (
+            f"Expected {checkout_ref_count} SHA assertions in ci.yml, found {assert_count}"
+        )
+
+    def test_codeql_checkouts_pr_head_sha(self) -> None:
+        """CodeQL must use github.event.pull_request.head.sha for PR checkouts."""
+        codeql = self._read_codeql()
+        assert "github.event.pull_request.head.sha" in codeql, (
+            "CodeQL must checkout the exact PR source-head SHA"
+        )
+
+    def test_codeql_asserts_head_sha(self) -> None:
+        """CodeQL must assert git rev-parse HEAD matches expected SHA."""
+        codeql = self._read_codeql()
+        assert "Assert checked-out HEAD matches event subject SHA" in codeql, (
+            "CodeQL must assert the checked-out HEAD SHA"
+        )
+
+
+class TestDeterministicToolPins:
+    """Verify actionlint, zizmor, and uv are pinned deterministically."""
+
+    def test_actionlint_install_script_has_pinned_version(self) -> None:
+        """The actionlint install script must pin an exact version."""
+        script = (REPO_ROOT / "scripts/install_actionlint.sh").read_text()
+        assert 'ACTIONLINT_VERSION="1.7.12"' in script, (
+            "actionlint version must be pinned to 1.7.12"
+        )
+
+    def test_actionlint_install_script_has_sha256(self) -> None:
+        """The actionlint install script must verify a committed SHA-256."""
+        script = (REPO_ROOT / "scripts/install_actionlint.sh").read_text()
+        assert "ACTIONLINT_SHA256=" in script, (
+            "actionlint install must verify a committed SHA-256 digest"
+        )
+        assert "sha256sum" in script, "actionlint install must run sha256sum verification"
+
+    def test_no_mutable_actionlint_download(self) -> None:
+        """CI must not download actionlint from a mutable branch ref."""
+        ci = (REPO_ROOT / ".github/workflows/ci.yml").read_text()
+        assert "download-actionlint.bash" not in ci, (
+            "CI must not use the mutable actionlint download script"
+        )
+        assert "install_actionlint.sh" in ci, (
+            "CI must use the deterministic install_actionlint.sh script"
+        )
+
+    def test_zizmor_via_uv_locked(self) -> None:
+        """zizmor must be installed via the uv-locked dev environment."""
+        ci = (REPO_ROOT / ".github/workflows/ci.yml").read_text()
+        assert "uv run zizmor" in ci, "CI must run zizmor via uv run"
+        assert "cargo install zizmor" not in ci, "CI must not use mutable cargo install for zizmor"
+        assert "pip install zizmor" not in ci, "CI must not use mutable pip install for zizmor"
+
+    def test_zizmor_in_pyproject_dev(self) -> None:
+        """zizmor must be listed as a dev dependency in pyproject.toml."""
+        pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+        assert "zizmor" in pyproject, "zizmor must be in dev dependencies"
+
+    def test_uv_pinned_in_ci(self) -> None:
+        """setup-uv must pin an exact version, not latest."""
+        ci = (REPO_ROOT / ".github/workflows/ci.yml").read_text()
+        assert 'version: "0.8.13"' in ci, "setup-uv must pin an exact version (0.8.13)"
+
+    def test_workflow_lint_script_exists(self) -> None:
+        """The deterministic workflow-lint runner script must exist."""
+        assert (REPO_ROOT / "scripts/run_workflow_lint.sh").exists(), (
+            "scripts/run_workflow_lint.sh must exist"
+        )
+
+
+class TestFailClosedWorkflowLint:
+    """Verify make workflow-lint fails closed (no warning-and-skip paths)."""
+
+    def test_makefile_workflow_lint_no_skip(self) -> None:
+        """Makefile workflow-lint must not contain warning-and-skip logic."""
+        makefile = (REPO_ROOT / "Makefile").read_text()
+        assert "WARNING" not in makefile, "Makefile must not contain warning-and-skip paths"
+        assert "skipping" not in makefile.lower(), (
+            "Makefile must not contain skip paths in workflow-lint"
+        )
+
+    def test_run_workflow_lint_script_fails_on_missing_tool(self) -> None:
+        """The workflow-lint script must exit nonzero when a tool is missing."""
+        script = (REPO_ROOT / "scripts/run_workflow_lint.sh").read_text()
+        assert "exit 1" in script, "run_workflow_lint.sh must have nonzero exit on failure"
+        assert "FAIL:" in script or "exit 1" in script
+
+
+class TestFailClosedPreCommit:
+    """Verify the installed pre-commit hook fails closed when uv is absent."""
+
+    def test_pre_commit_fails_closed_on_missing_uv(self) -> None:
+        """The pre-commit hook must exit nonzero when uv is not found."""
+        hook = (REPO_ROOT / ".githooks/pre-commit").read_text()
+        assert "uv" in hook
+        # Must NOT contain the old warning-and-skip behavior
+        assert "WARNING: uv not found. Skipping checks." not in hook, (
+            "Pre-commit hook must not silently skip when uv is missing"
+        )
+        # Must contain a fail-closed exit when uv is unavailable
+        assert "exit 1" in hook, "Pre-commit hook must exit nonzero on missing uv"

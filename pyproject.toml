@@ -64,12 +64,13 @@ dev = [
     "mypy>=1.17.0",
     "build>=1.3.0",
     "twine>=6.1.0",
+    "zizmor>=1.0,<2",
 ]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-src = ["src", "tests"]
+src = ["src", "tests", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
@@ -83,7 +84,8 @@ line-ending = "lf"
 [tool.mypy]
 strict = true
 python_version = "3.11"
-packages = ["src.zadc"]
+mypy_path = "src"
+packages = ["src.zadc", "tests", "scripts"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

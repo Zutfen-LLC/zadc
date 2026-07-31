@@ -6,6 +6,9 @@ PYTHON ?= python3
 # uv command
 UV ?= uv
 
+# Directories covered by quality gates
+QUALITY_DIRS = src tests scripts
+
 # Activate the virtual environment for targets that need it
 SYNC_TARGET = $(UV) sync --frozen --extra dev
 
@@ -13,36 +16,26 @@ sync: ## Sync dependencies from uv.lock
 	$(SYNC_TARGET)
 
 format: ## Auto-format code with ruff
-	$(UV) run ruff format src tests
-	$(UV) run ruff check --fix src tests
+	$(UV) run ruff format $(QUALITY_DIRS)
+	$(UV) run ruff check --fix $(QUALITY_DIRS)
 
 format-check: ## Check formatting without modifying
-	$(UV) run ruff format --check src tests
-	$(UV) run ruff check src tests
+	$(UV) run ruff format --check $(QUALITY_DIRS)
+	$(UV) run ruff check $(QUALITY_DIRS)
 
 lint: ## Run ruff linter
-	$(UV) run ruff check src tests
+	$(UV) run ruff check $(QUALITY_DIRS)
 
 typecheck: ## Run mypy strict
-	$(UV) run mypy --strict src
+	$(UV) run mypy --strict src tests scripts
 
 test: ## Run pytest with coverage
 	$(UV) run pytest
 
 check: format-check lint typecheck test ## Run all quality gates
 
-workflow-lint: ## Lint GitHub workflow files (actionlint + zizmor)
-	@if command -v actionlint >/dev/null 2>&1; then \
-		actionlint; \
-	else \
-		echo "WARNING: actionlint not installed, skipping"; \
-	fi
-	@if command -v zizmor >/dev/null 2>&1; then \
-		zizmor .github/workflows/; \
-	else \
-		echo "WARNING: zizmor not installed, skipping"; \
-	fi
-	@bash scripts/verify_workflows.sh
+workflow-lint: ## Lint GitHub workflow files (actionlint + zizmor, fail-closed)
+	@bash scripts/run_workflow_lint.sh
 
 build: ## Build wheel and sdist
 	$(UV) build
@@ -54,6 +47,7 @@ clean: ## Remove build artifacts and caches
 	rm -rf dist build *.egg-info src/*.egg-info
 	rm -rf .mypy_cache .ruff_cache .pytest_cache
 	rm -rf htmlcov .coverage coverage.xml
+	rm -rf .tools
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
 help: ## Show this help

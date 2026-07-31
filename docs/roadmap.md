@@ -14,54 +14,49 @@ is implemented.
 
 ## ZADC-001 — Contract Core
 
-### ZADC-001A — Canonical Artifacts and Rendering
+### ZADC-001A — Canonical artifacts and rendering
 
 Define the canonical artifact model: packet, completion report,
 certification manifest, review report, human decision record. Implement
 common envelope, canonical serialization, content digests, and rendered
 views for multiple consumers (Hermes, Codex, Claude, CI, human).
 
-### ZADC-001B — Lifecycle State and Transitions
+### ZADC-001B — Workflow bundles and derived lifecycle
 
-Implement lifecycle state derivation: expected vs actual work-start SHA,
-implementation head, certified code SHA, evidence carrier commit,
-exact-head CI, synthetic merge verification, and state transition rules
-(per Section 5.9: state is derived, not self-declared).
+Implement workflow bundle management and lifecycle state derivation:
+expected vs actual work-start SHA, implementation head, certified code SHA,
+evidence carrier commit, exact-head CI, synthetic merge verification, and
+state transition rules. State is derived, not self-declared.
 
-### ZADC-001C — Validation and Policy
+### ZADC-001C — Git subject and evidence validation
 
-Implement schema validation, referential integrity checks, policy
-evaluation, and deterministic state derivation. Version and pin policy
-identifiers. Prevent self-validation (PR modifying the policy that
-validates itself).
+Implement Git subject validation, evidence binding to exact subjects,
+schema validation, referential integrity checks, policy evaluation, and
+deterministic state derivation. Version and pin policy identifiers. Prevent
+self-validation (PR modifying the policy that validates itself).
 
-### ZADC-001D — Git and GitHub Adapters
+### ZADC-001D — GitHub and GitHub Actions reconciliation
 
 Implement adapters that resolve commits, ancestry, PR state, checks, and
-merge state from Git and GitHub. These are observation tools, not
+merge state from Git and GitHub Actions. These are observation tools, not
 authority sources.
 
-### ZADC-001E — Evidence and Certification
+### ZADC-001E — Review, correction, and human-decision workflow
 
-Implement evidence artifact management: content-addressed storage,
-portable identifiers, evidence binding to exact subjects, and
-certification manifest generation from trusted CI.
+Implement independent review reports, finding management, correction
+packets, human decision records, and the workflow bundle aggregate that
+links all artifacts for a slice instance.
 
-### ZADC-001F — Review and Decision Workflows
+### ZADC-001F — First live project dogfood
 
-Implement independent review reports, finding management, human decision
-records, and the workflow bundle aggregate that links all artifacts for a
-slice instance.
+Exercise the full contract end-to-end on a real project, validating the
+toolchain, artifact flow, and review workflow under live conditions.
 
-## ZADC-002 — Integration
+## ZADC-002 — Engram provenance integration
 
-Engram integration (provenance, context retention with freshness
-reconciliation), Flowstate integration (derived state presentation and
-workflow controls), and cross-repository dependency pinning.
+Engram integration for provenance, context retention with freshness
+reconciliation, and cross-repository dependency pinning.
 
-## ZADC-003 — Governance and Operations
+## ZADC-003 — Flowstate orchestration integration
 
-Policy versioning and trusted-release validation path, organizational
-governance, audit trail, and operational runbooks. The trusted-release
-validation path ensures candidate changes are validated by the latest
-trusted release, not only by candidate code.
+Flowstate integration for derived state presentation and workflow controls.

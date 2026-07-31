@@ -75,10 +75,9 @@ class TestDistributionMetadata:
     def test_console_script_entry_point(self) -> None:
         """Console script ``zadc`` must map to ``zadc.cli:main``."""
         eps = importlib.metadata.entry_points()
-        if hasattr(eps, "select"):
-            zadc_eps = eps.select(group="console_scripts", name="zadc")
-        else:  # pragma: no cover  # Python <3.10 fallback
-            zadc_eps = [ep for ep in eps.get("console_scripts", []) if ep.name == "zadc"]
-        assert len(list(zadc_eps)) == 1
-        ep = list(zadc_eps)[0]
+        zadc_eps: list[importlib.metadata.EntryPoint] = list(
+            eps.select(group="console_scripts", name="zadc")
+        )
+        assert len(zadc_eps) == 1
+        ep = zadc_eps[0]
         assert ep.value == "zadc.cli:main"

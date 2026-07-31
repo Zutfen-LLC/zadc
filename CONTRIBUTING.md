@@ -41,8 +41,8 @@ make package-smoke
 - **Python >= 3.11**, src layout.
 - **Line length**: 100 characters.
 - **Formatting**: `ruff format` (run `make format` to auto-format).
-- **Linting**: `ruff check` with `E, F, I, UP, B, SIM` rules.
-- **Typing**: `mypy --strict` over `src` and `tests`.
+- **Linting**: `ruff check` with `E, F, I, UP, B, SIM` rules across `src`, `tests`, and `scripts`.
+- **Typing**: `mypy --strict` over `src`, `tests`, and `scripts`.
 - **Coverage**: >= 95% package coverage required.
 
 ## PR checklist

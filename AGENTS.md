@@ -11,8 +11,8 @@ paraphrase or silently revise contract semantics.
 - **Language**: Python >= 3.11, src layout (`src/zadc/`).
 - **Package manager**: `uv`. Lock file is committed (`uv.lock`).
 - **Formatting**: `ruff format`, line length 100, LF endings.
-- **Linting**: `ruff check` with rules `E, F, I, UP, B, SIM`.
-- **Typing**: `mypy --strict` over `src` and `tests`. All code is typed.
+- **Linting**: `ruff check` with rules `E, F, I, UP, B, SIM` across `src`, `tests`, and `scripts`.
+- **Typing**: `mypy --strict` over `src`, `tests`, and `scripts`. All code is typed.
 - **Testing**: `pytest` with coverage. Maintain >= 95% package coverage.
 - **Commits**: Conventional commits (`feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`).
 

@@ -31,6 +31,9 @@ ENV/
 # uv
 .uv/
 
+# Pinned local tools (actionlint, etc.)
+.tools/
+
 # Testing / coverage
 .tox/
 .nox/

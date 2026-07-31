@@ -4,14 +4,14 @@ ZADC Pull Request Template
 
 ## Slice
 
-- **Slice ID:** ZADC-000
-- **Packet/Sentinel:** ZADC-000-UNIVERSAL-REPOSITORY-BOOTSTRAP-20260730
+- **Slice ID:** <!-- e.g., ZADC-000 -->
+- **Packet/Sentinel:** <!-- packet_id + sentinel from the authorized packet -->
 
 ## SHAs
 
-- **Expected work-start SHA (bootstrap seed):** 
-- **Actual work-start SHA:** 
-- **Final head SHA:** 
+- **Expected work-start SHA:** <!-- pinned expected_work_start_sha from packet -->
+- **Actual work-start SHA:** <!-- resolved from the live PR head at work start -->
+- **Final head SHA:** <!-- the exact final commit SHA on this branch -->
 
 ## Summary
 
@@ -23,7 +23,7 @@ ZADC Pull Request Template
 
 ## Scope deviations
 
-<!-- Any deviations from the packet. None expected for ZADC-000. -->
+<!-- Any deviations from the packet. None expected unless noted. -->
 
 ## Verification
 
@@ -37,7 +37,7 @@ ZADC Pull Request Template
 
 ## Security impact
 
-<!-- Any security-relevant changes. None expected for ZADC-000. -->
+<!-- Any security-relevant changes. None expected unless noted. -->
 
 ## No merge
 

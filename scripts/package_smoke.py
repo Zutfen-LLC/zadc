@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import glob
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -81,7 +80,7 @@ def main() -> int:
         if result.returncode != 0:
             print(f"FAIL: zadc --version failed: {result.stderr}")
             return 1
-        print(f"  zadc --version -> exit 0")
+        print("  zadc --version -> exit 0")
 
         # Test --help
         print("Testing zadc --help...")
@@ -93,7 +92,7 @@ def main() -> int:
         if result.returncode != 0:
             print(f"FAIL: zadc --help failed: {result.stderr}")
             return 1
-        print(f"  zadc --help -> exit 0")
+        print("  zadc --help -> exit 0")
 
         # Test python -m zadc --version
         print("Testing python -m zadc --version...")
@@ -105,7 +104,7 @@ def main() -> int:
         if result.returncode != 0:
             print(f"FAIL: python -m zadc --version failed: {result.stderr}")
             return 1
-        print(f"  python -m zadc --version -> exit 0")
+        print("  python -m zadc --version -> exit 0")
 
     print("\nOK: All package smoke tests passed")
     return 0
