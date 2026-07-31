@@ -9,8 +9,6 @@ authorization, verification, approval, merge-worthiness, or merge claim.
 That is an intentional design constraint for v0.1.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 
 from pydantic import (

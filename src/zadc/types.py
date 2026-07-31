@@ -5,8 +5,6 @@ where applicable. They enforce the identifier and digest constraints
 defined in ZADC architecture sections 9 and 10.
 """
 
-from __future__ import annotations
-
 import re
 from typing import Annotated, Literal
 
