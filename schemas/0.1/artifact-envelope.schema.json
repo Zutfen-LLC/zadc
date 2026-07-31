@@ -10,8 +10,20 @@
           "type": "string"
         },
         "policy_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:uuid:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
           "minLength": 1,
-          "pattern": "^[a-z][a-z0-9+.\\-]*:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+$",
           "title": "Policy Id",
           "type": "string"
         },
@@ -34,8 +46,20 @@
       "description": "Identity of the actor that produced an artifact.\n\nFields (architecture section 10, ``producer``):\n- ``actor_type``: human, agent, ci, validator, service.\n- ``actor_id``: URI-shaped global identifier for the actor.\n- ``run_id``: optional run/execution identifier.\n- ``model``: optional model identifier (for agent producers).\n- ``provider``: optional provider/service identifier.",
       "properties": {
         "actor_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:uuid:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
           "minLength": 1,
-          "pattern": "^[a-z][a-z0-9+.\\-]*:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+$",
           "title": "Actor Id",
           "type": "string"
         },
@@ -77,8 +101,20 @@
         "run_id": {
           "anyOf": [
             {
+              "allOf": [
+                {
+                  "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+                },
+                {
+                  "if": {
+                    "pattern": "^urn:uuid:"
+                  },
+                  "then": {
+                    "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  }
+                }
+              ],
               "minLength": 1,
-              "pattern": "^[a-z][a-z0-9+.\\-]*:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+$",
               "type": "string"
             },
             {
@@ -115,8 +151,20 @@
         },
         "parent_artifact_ids": {
           "items": {
+            "allOf": [
+              {
+                "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+              },
+              {
+                "if": {
+                  "pattern": "^urn:uuid:"
+                },
+                "then": {
+                  "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                }
+              }
+            ],
             "minLength": 1,
-            "pattern": "^[a-z][a-z0-9+.\\-]*:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+$",
             "type": "string"
           },
           "title": "Parent Artifact Ids",
@@ -136,8 +184,20 @@
   "description": "Common artifact envelope for the Zutfen Agentic Development Contract v0.1. Every ZADC artifact MUST include this envelope.",
   "properties": {
     "artifact_id": {
+      "allOf": [
+        {
+          "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+        },
+        {
+          "if": {
+            "pattern": "^urn:uuid:"
+          },
+          "then": {
+            "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        }
+      ],
       "minLength": 1,
-      "pattern": "^[a-z][a-z0-9+.\\-]*:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+$",
       "title": "Artifact Id",
       "type": "string"
     },
@@ -162,7 +222,10 @@
     },
     "created_at": {
       "format": "date-time",
-      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|[+-]\\d{2}:\\d{2})$",
+      "not": {
+        "pattern": "^.*-00:00$"
+      },
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{1,6})?(?:Z|[+-](?:[01]\\d|2[0-3]):[0-5]\\d)$",
       "title": "Created At",
       "type": "string"
     },
@@ -173,8 +236,20 @@
       "$ref": "#/$defs/ProducerIdentity"
     },
     "project_id": {
+      "allOf": [
+        {
+          "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+        },
+        {
+          "if": {
+            "pattern": "^urn:uuid:"
+          },
+          "then": {
+            "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        }
+      ],
       "minLength": 1,
-      "pattern": "^[a-z][a-z0-9+.\\-]*:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+$",
       "title": "Project Id",
       "type": "string"
     },

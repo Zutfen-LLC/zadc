@@ -7,24 +7,40 @@ This module defines:
   part, valid uppercase ``%HH`` percent escapes, and canonical lowercase UUID URNs.
 - ``SliceId``: Human-friendly bounded identifiers for slice and
   slice-instance references.
-- ``TimestampString``: The ZADC Timestamp v0.1 annotated type, enforcing the
-  exact RFC 3339 profile at the schema level.
+- ``TimestampField``: The ZADC Timestamp v0.1 annotated type with model-owned
+  schema constraints for JSON Schema generation.
+
+FIX3 changes:
+- The GlobalId JSON Schema pattern is now percent-aware: ``%`` is accepted
+  only as a complete uppercase ``%HH`` escape. The pattern rejects bare ``%``,
+  incomplete escapes, non-hex escapes, and lowercase hex escapes.
+- A UUID conditional (Draft 2020-12 ``if/then``) is emitted through the
+  GlobalId custom type's ``__get_pydantic_json_schema__`` hook so every
+  GlobalId field enforces canonical UUID URN form when the value starts with
+  ``urn:uuid:``.
+- The Timestamp v0.1 schema pattern now constrains hour (00-23), minute
+  (00-59), second (00-59), and offset hour/minute to valid numeric ranges.
+  A ``not`` constraint rejects ``-00:00``. ``format: date-time`` plus
+  ``FormatChecker`` rejects invalid calendar dates.
+
+All FIX3 business constraints are model-owned: they come from Pydantic type
+metadata or custom ``__get_pydantic_json_schema__`` hooks, NOT from
+exporter-side injection.
 
 ZADC GlobalId v0.1 grammar (runtime + schema parity):
 
     scheme    = [a-z][a-z0-9+.-]*
     colon     = ":"
-    ssp       = 1*ASCII-URI-char      ; RFC 3986 unreserved/reserved/pct-encoded
+    ssp-char  = ASCII-URI-char | pct-escape
     pct       = "%" HEXUP HEXUP        ; uppercase hex only
-    uuid-urn  = "urn:uuid:" uuid-text  ; where uuid-text = str(UUID(value))
-    GlobalId  = scheme colon ssp       ; base grammar
-              | uuid-urn               ; canonical UUID URN
+    uuid-urn  = "urn:uuid:" uuid-text  ; canonical lowercase hyphenated UUID
+    GlobalId  = scheme colon 1*ssp-char
 
 ZADC Timestamp v0.1 grammar:
 
     date      = YYYY "-" MM "-" DD
-    time      = HH ":" MM ":" SS [ "." 1*6DIGIT ]
-    offset    = "Z" | ( "+" / "-" ) HH ":" MM
+    time      = HH(00-23) ":" MM(00-59) ":" SS(00-59) [ "." 1*6DIGIT ]
+    offset    = "Z" | ( "+" / "-" ) HH(00-23) ":" MM(00-59)  ; not -00:00
     Timestamp = date "T" time offset
 
 Uppercase T and Z required. Leap seconds (SS = 60) rejected in v0.1.
@@ -34,9 +50,11 @@ Unknown offset ``-00:00`` rejected.
 import re
 import unicodedata
 from datetime import UTC, datetime, timedelta, timezone
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import AfterValidator, StringConstraints
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import CoreSchema
 
 # ---------------------------------------------------------------------------
 # Contract-level constants (architecture section 10)
@@ -82,7 +100,7 @@ SchemaUriLiteral = Literal["https://schemas.zutfen.com/zadc/0.1/artifact.schema.
 ContractVersionLiteral = Literal["0.1.0"]
 
 # ---------------------------------------------------------------------------
-# Global identifier validation (FIX2-B: ZADC GlobalId v0.1)
+# Global identifier validation (FIX2-B + FIX3-A: ZADC GlobalId v0.1)
 # ---------------------------------------------------------------------------
 
 #: Canonical lowercase URI scheme: [a-z][a-z0-9+.-]*
@@ -94,8 +112,8 @@ _ASCII_UNRESERVED = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012
 #: RFC 3986 ASCII reserved characters (gen-delims + sub-delims).
 _ASCII_RESERVED = set(":/?#[]@!$&'()*+,;=")
 
-#: All ASCII characters allowed in the scheme-specific part of a GlobalId.
-_ASCII_URI_CHARS = _ASCII_UNRESERVED | _ASCII_RESERVED | {"%"}
+#: All ASCII characters allowed in the scheme-specific part of a GlobalId (excluding %).
+_ASCII_URI_CHARS_NO_PCT = _ASCII_UNRESERVED | _ASCII_RESERVED
 
 #: Canonical UUID URN pattern: urn:uuid: followed by canonical lowercase hyphenated UUID.
 _CANONICAL_UUID_URN_RE = re.compile(
@@ -153,7 +171,7 @@ def validate_global_id(value: str) -> str:
       backslashes, quotes, angle brackets, and other forbidden characters
       are rejected rather than normalized;
     - if the scheme is ``urn:uuid:``, match the canonical lowercase form
-      ``urn:uuid:`` followed by the text returned by ``str(UUID(value))``.
+      ``urn:uuid:`` followed by a valid hyphenated UUID.
 
     This validator does NOT make network calls or attempt scheme-specific
     resource resolution.
@@ -196,11 +214,11 @@ def validate_global_id(value: str) -> str:
     # Validate percent escapes (must be valid %HH uppercase).
     _validate_percent_escapes(ssp)
 
-    # Every character in the SSP must be an allowed ASCII URI character.
+    # Every character in the SSP must be an allowed ASCII URI character (or part of a % escape).
     for idx, ch in enumerate(ssp):
         if ch == "%":
             continue  # already validated as part of percent escape
-        if ch not in _ASCII_URI_CHARS:
+        if ch not in _ASCII_URI_CHARS_NO_PCT:
             raise ValueError(
                 f"global identifier contains forbidden character {ch!r} "
                 f"at position {colon_pos + 1 + idx} in scheme-specific part"
@@ -208,47 +226,70 @@ def validate_global_id(value: str) -> str:
 
     # UUID URN canonical validation.
     if scheme == "urn" and ssp.startswith("uuid:") and not _CANONICAL_UUID_URN_RE.match(value):
-        # The regex guarantees exact canonical lowercase format and valid
-        # hex positions.
         raise ValueError(f"urn:uuid identifiers must be canonical lowercase: {value!r}")
 
     return value
 
 
-#: Portable base GlobalId pattern for JSON Schema.
-#: Matches: lowercase scheme [a-z][a-z0-9+.-]*, colon, then at least one
-#: ASCII URI character. The full ASCII-only and percent-escape checks are
-#: enforced by the runtime AfterValidator; the pattern provides the base
-#: portable grammar for independent schema validation.
-_GLOBAL_ID_PATTERN = (
+# ---------------------------------------------------------------------------
+# GlobalId JSON Schema patterns (FIX3-A: model-owned, percent-aware)
+# ---------------------------------------------------------------------------
+
+#: Portable percent-aware GlobalId base pattern for JSON Schema.
+#: Each character in the SSP is EITHER an ordinary RFC 3986 URI character
+#: (no bare %) OR a complete uppercase %HH escape.
+#:
+#: This rejects: bare %, incomplete escapes (%2, %), non-hex (%GG), and
+#: lowercase hex (%2f, %0a).
+_GLOBAL_ID_BASE_PATTERN = (
     r"^[a-z][a-z0-9+.\-]*:"
-    r"[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+$"
+    r"(?:[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
 )
 
-#: UUID URN pattern for JSON Schema (model-owned conditional constraint).
-#: Exact canonical lowercase: urn:uuid:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+#: Exact canonical UUID URN pattern.
 _UUID_URN_PATTERN = r"^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 
+
+class _GlobalIdJsonSchemaModifier:
+    """Custom schema hook for GlobalId to inject the allOf/if/then constraint.
+
+    This is model-owned metadata, not exporter-side mutation. When used as an
+    Annotated metadata element, Pydantic calls ``__get_pydantic_json_schema__``
+    during ``model_json_schema()`` generation, so the constraint is present in
+    the raw model schema before any exporter post-processing.
+    """
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema: CoreSchema, handler: Any) -> JsonSchemaValue:
+        json_schema = handler(core_schema)
+        # Build the model-owned GlobalId schema: base pattern + UUID conditional.
+        result: dict[str, Any] = {"type": "string", "minLength": json_schema.get("minLength", 1)}
+        result["allOf"] = [
+            {
+                "pattern": _GLOBAL_ID_BASE_PATTERN,
+            },
+            {
+                "if": {"pattern": "^urn:uuid:"},
+                "then": {"pattern": _UUID_URN_PATTERN},
+            },
+        ]
+        return result
+
+
+#: GlobalId type with model-owned schema constraints.
+#: StringConstraints provides the base pattern for runtime validation.
+#: _GlobalIdJsonSchemaModifier provides the allOf/if/then JSON Schema via
+#: __get_pydantic_json_schema__.
 GlobalId = Annotated[
     str,
-    StringConstraints(min_length=1, pattern=_GLOBAL_ID_PATTERN),
+    StringConstraints(min_length=1, pattern=_GLOBAL_ID_BASE_PATTERN),
+    _GlobalIdJsonSchemaModifier,
     AfterValidator(validate_global_id),
 ]
 
 
-# ---------------------------------------------------------------------------
-# UUID URN conditional schema construct (FIX2-B / FIX2-BP-07)
-# ---------------------------------------------------------------------------
-
-#: A GlobalId variant whose StringConstraints pattern requires canonical UUID URN.
-#: Used by the schema exporter to emit a UUID-specific conditional pattern
-#: alongside the base GlobalId pattern. This is a model-owned metadata hook,
-#: not a handwritten second envelope schema.
-GlobalIdUuidUrn = Annotated[
-    str,
-    StringConstraints(min_length=1, pattern=_UUID_URN_PATTERN),
-    AfterValidator(validate_global_id),
-]
+#: GlobalIdUuidUrn — retained for backward compat but now equivalent to GlobalId.
+GlobalIdUuidUrn = GlobalId
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +298,8 @@ GlobalIdUuidUrn = Annotated[
 
 #: Allowed characters for slice IDs: uppercase letters, digits, and hyphens.
 _SLICE_ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9\-]*[A-Z0-9]$|^[A-Z0-9]$")
+
+_SLICE_ID_PATTERN = r"^[A-Z0-9]([A-Z0-9\-]*[A-Z0-9])?$"
 
 
 def validate_slice_id(value: str) -> str:
@@ -286,9 +329,6 @@ def validate_slice_id(value: str) -> str:
     return value
 
 
-#: Allowed characters for slice IDs: uppercase letters, digits, and hyphens.
-_SLICE_ID_PATTERN = r"^[A-Z0-9]([A-Z0-9\-]*[A-Z0-9])?$"
-
 SliceId = Annotated[
     str,
     StringConstraints(min_length=1, max_length=128, pattern=_SLICE_ID_PATTERN),
@@ -297,34 +337,34 @@ SliceId = Annotated[
 
 
 # ---------------------------------------------------------------------------
-# ZADC Timestamp v0.1 grammar (FIX2-C)
+# ZADC Timestamp v0.1 grammar (FIX2-C + FIX3-B: model-owned schema)
 # ---------------------------------------------------------------------------
 
-#: The exact ZADC Timestamp v0.1 regex pattern.
-#: Matches YYYY-MM-DDTHH:MM:SS[.ffffff](Z|+HH:MM|-HH:MM) with uppercase T and Z.
-#: Fractional seconds: 1 through 6 digits only (Python datetime microsecond precision).
-#: Does NOT match:
-#: - space separators, arbitrary separator characters
-#: - basic date/time forms (no separators)
-#: - week dates (W01), ordinal dates
-#: - offsets without a colon (e.g. +0500)
-#: - timezone-free strings
-#: - lowercase t/z
-#: - more than 6 fractional digits
-#: - trailing data
+#: The exact ZADC Timestamp v0.1 regex pattern with numeric ranges.
 #:
-#: Note: :60 leap seconds are NOT rejected by this regex alone — they are
-#: rejected by the post-regex calendar/wall-clock validation.
-#: Note: -00:00 is NOT rejected by this regex alone — rejected by post-regex
-#: offset validation.
+#: Constrains:
+#: - Hour: 00-23 (rejects 24+)
+#: - Minute: 00-59 (rejects 60+)
+#: - Second: 00-59 (rejects 60+, i.e. leap seconds)
+#: - Offset hour: 00-23
+#: - Offset minute: 00-59
+#: - Fractional seconds: 1-6 digits
+#:
+#: Does NOT independently reject:
+#: - -00:00 (handled by the not constraint below)
+#: - Invalid calendar dates (handled by format: date-time + FormatChecker)
 TIMESTAMP_V0_1_PATTERN = (
-    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
-    r"(\.\d{1,6})?"
-    r"(Z|[+-]\d{2}:\d{2})$"
+    r"^\d{4}-\d{2}-\d{2}T"
+    r"(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d"
+    r"(?:\.\d{1,6})?"
+    r"(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$"
 )
 
 #: Compiled timestamp regex for runtime fullmatch.
 _TIMESTAMP_RE = re.compile(TIMESTAMP_V0_1_PATTERN)
+
+#: Pattern matching -00:00 (for the model-owned not constraint).
+_TIMESTAMP_NEG_00_00_PATTERN = r"^.*-00:00$"
 
 
 def validate_timestamp(value: str) -> str:
@@ -354,75 +394,43 @@ def validate_timestamp(value: str) -> str:
     if not value:
         raise ValueError("timestamp must not be empty")
 
-    # Step 1: Exact regex fullmatch.
+    # Step 1: Exact regex fullmatch (handles component ranges).
     if not _TIMESTAMP_RE.fullmatch(value):
         raise ValueError(f"timestamp does not match ZADC Timestamp v0.1 grammar: {value!r}")
 
-    # Step 2: Parse calendar date and wall-clock time for semantic validation.
-    # The regex guarantees the format, but we need to check ranges.
-    # Do NOT use datetime.fromisoformat — it accepts broader syntax.
-    # Parse manually to avoid fromisoformat over-acceptance.
-
+    # Step 2: Validate calendar date (FormatChecker-compatible logic).
     date_part = value[:10]  # YYYY-MM-DD
-    time_part = value[11:19]  # HH:MM:SS
 
     year = int(date_part[:4])
     month = int(date_part[5:7])
     day = int(date_part[8:10])
-    hours = int(time_part[:2])
-    minutes = int(time_part[3:5])
-    seconds = int(time_part[6:8])
-
-    # Validate calendar date ranges.
-    if month < 1 or month > 12:
-        raise ValueError(f"timestamp has invalid month: {month}")
-    if day < 1 or day > 31:
-        raise ValueError(f"timestamp has invalid day: {day}")
-    # Check day validity for the specific month.
     _validate_calendar_date(year, month, day)
 
-    # Validate wall-clock time.
-    if hours > 23:
-        raise ValueError(f"timestamp has invalid hour: {hours}")
-    if minutes > 59:
-        raise ValueError(f"timestamp has invalid minute: {minutes}")
-    # Reject leap seconds in v0.1.
-    if seconds > 59:
-        raise ValueError(
-            f"timestamp has seconds={seconds}; leap seconds (:60) are rejected in v0.1"
-        )
-
-    # Step 3: Validate offset.
+    # Step 3: Reject -00:00 explicitly (the regex pattern already handles this
+    # via the offset alternatives, but double-check for safety).
     offset_part = value[19:]
     if "." in offset_part:
         # Fractional seconds present — offset starts after the fraction.
         frac_start = 19  # position after HH:MM:SS
-        # Find the end of the fractional part.
         j = frac_start + 1  # skip the '.'
         while j < len(value) and value[j].isdigit():
             j += 1
         offset_part = value[j:]
 
-    if offset_part == "Z":
-        pass  # Valid UTC.
-    elif offset_part == "-00:00":
+    if offset_part == "-00:00":
         raise ValueError(
             "timestamp offset -00:00 is rejected in v0.1 (unknown offset collapsed into UTC)"
         )
-    else:
-        # Offset starts with + or - (guaranteed by regex).
-        off_hours = int(offset_part[1:3])
-        off_minutes = int(offset_part[4:6])
-        if off_hours > 23:
-            raise ValueError(f"timestamp has invalid offset hours: {off_hours}")
-        if off_minutes > 59:
-            raise ValueError(f"timestamp has invalid offset minutes: {off_minutes}")
 
     return value
 
 
 def _validate_calendar_date(year: int, month: int, day: int) -> None:
     """Validate that the given year/month/day is a real calendar date."""
+    if month < 1 or month > 12:
+        raise ValueError(f"timestamp has invalid month: {month}")
+    if day < 1:
+        raise ValueError(f"timestamp has invalid day: {day}")
     days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     # Leap year check.
     is_leap = (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)
@@ -487,11 +495,33 @@ def normalize_timestamp_to_utc(value: str) -> datetime:
     return dt.astimezone(UTC)
 
 
-#: The timestamp string type with the ZADC v0.1 pattern for schema generation.
-TimestampString = Annotated[
-    str,
-    StringConstraints(pattern=TIMESTAMP_V0_1_PATTERN),
-]
+# ---------------------------------------------------------------------------
+# Timestamp JSON Schema modifier (FIX3-B/FIX3-C: model-owned)
+# ---------------------------------------------------------------------------
+
+
+class _TimestampJsonSchemaModifier:
+    """Custom schema hook for timestamp fields to inject model-owned constraints.
+
+    Emits the ZADC Timestamp v0.1 pattern (with numeric ranges), a ``not``
+    constraint rejecting -00:00, and ``format: date-time`` for FormatChecker
+    calendar validation. All constraints are model-owned and appear in the
+    raw model_json_schema() output before exporter post-processing.
+    """
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema: CoreSchema, handler: Any) -> JsonSchemaValue:
+        json_schema = handler(core_schema)
+        # Add the exact timestamp pattern.
+        json_schema["pattern"] = TIMESTAMP_V0_1_PATTERN
+        # Add not constraint for -00:00.
+        json_schema["not"] = {"pattern": _TIMESTAMP_NEG_00_00_PATTERN}
+        return cast(JsonSchemaValue, json_schema)
+
+
+#: The timestamp annotation type with model-owned schema constraints.
+#: Used as an Annotated[] metadata element on datetime fields.
+TimestampField = _TimestampJsonSchemaModifier
 
 
 # ---------------------------------------------------------------------------
@@ -546,7 +576,7 @@ __all__ = [
     "Sha256Digest",
     "GitSha",
     "SchemaUriLiteral",
-    "TimestampString",
+    "TimestampField",
     "validate_global_id",
     "validate_slice_id",
     "validate_sha256_digest",

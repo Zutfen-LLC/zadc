@@ -137,8 +137,23 @@ Raises `DigestMissingError` or `DigestMismatchError`.
 ## Schema Derivation
 
 The JSON Schema is derived from `ArtifactEnvelope.model_json_schema()` with
-deterministic post-processing. It is NOT hand-written. Constraints (patterns,
-enums, required fields) come from the model's Pydantic metadata.
+deterministic post-processing. ALL business constraints — const values,
+required fields, enums, GlobalId patterns, UUID conditionals (if/then),
+timestamp ranges, -00:00 exclusion — originate from the model's Pydantic
+type metadata and custom `__get_pydantic_json_schema__` hooks.
+
+The exporter adds only stable document metadata (`$schema`, `$id`, `title`,
+`description`) and deterministic key ordering. It does NOT inject or modify
+any business constraint.
+
+Independent validation uses `Draft202012Validator` with an explicit
+`FormatChecker` (backed by `rfc3339-validator`) so the committed schema
+independently rejects:
+- Malformed and lowercase percent escapes
+- Noncanonical UUID URNs (via if/then conditional)
+- Leap seconds (:60), invalid numeric time/offset ranges
+- `-00:00` (via `not` constraint)
+- Invalid calendar dates (via `format: date-time` + FormatChecker)
 
 ## Typical workflow
 

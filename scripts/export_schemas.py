@@ -6,22 +6,16 @@ with deterministic post-processing for stable output. The output file uses
 sorted pretty JSON with a final newline.
 
 FIX1-E: The schema is derived from the Pydantic model, not hand-written.
-Post-processing only adds $schema, $id, title, description, and reorders keys.
 
 FIX2-A: ``schema`` and ``contract_version`` emit ``const`` entries from
 Literal types. They are ``required`` with no defaults.
 
-FIX2-B: The GlobalId pattern is the canonical ZADC GlobalId v0.1 grammar.
-UUID URN conditional constraints are encoded through model-owned JSON Schema
-metadata (GlobalIdUuidUrn pattern annotation).
-
-FIX2-C: The created_at field includes the exact ZADC Timestamp v0.1 pattern
-in addition to ``format: date-time``.
-
-Usage:
-    python scripts/export_schemas.py [--output-dir schemas]
-
-The schema is written to ``schemas/0.1/artifact-envelope.schema.json``.
+FIX3-C: ALL business constraints are model-owned. The exporter does NOT
+inject or modify any business constraints (patterns, required, const,
+allOf, if/then, not, format, enum, additionalProperties). Exporter
+post-processing is limited to:
+- Stable document metadata ($schema, $id, title, description)
+- Deterministic key ordering for presentation
 """
 
 import argparse
@@ -36,7 +30,7 @@ if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
 from zadc.models.common import ArtifactEnvelope  # noqa: E402
-from zadc.types import SCHEMA_ID, TIMESTAMP_V0_1_PATTERN  # noqa: E402
+from zadc.types import SCHEMA_ID  # noqa: E402
 
 # Key-order map for deterministic top-level ordering.
 # We place these before the Pydantic-generated keys.
@@ -63,37 +57,25 @@ def _reorder_dict(data: dict[str, object], key_order: list[str]) -> dict[str, ob
     return result
 
 
-def _inject_timestamp_pattern(properties: dict[str, object]) -> None:
-    """Inject the ZADC Timestamp v0.1 pattern into the created_at schema.
-
-    FIX2-C: The created_at field must include both ``format: date-time`` and
-    the exact ``TIMESTAMP_V0_1_PATTERN``. Pydantic generates the format keyword
-    from the datetime type; the pattern comes from the model's metadata hook.
-    """
-    created_at = properties.get("created_at")
-    if isinstance(created_at, dict):
-        # Add the exact timestamp pattern alongside format: date-time.
-        created_at["pattern"] = TIMESTAMP_V0_1_PATTERN
-
-
 def _build_envelope_schema() -> dict[str, object]:
     """Build the JSON Schema for ArtifactEnvelope from the model.
 
     Uses ``ArtifactEnvelope.model_json_schema(mode='validation')`` to derive
     the schema, then applies deterministic post-processing.
 
-    All business constraints — const values, required fields, enums, patterns,
-    UUID conditional patterns — originate from the model's Pydantic JSON Schema
-    metadata. Post-processing is limited to stable document metadata,
-    reference/layout normalization, and deterministic presentation.
+    FIX3-C: All business constraints — const values, required fields, enums,
+    patterns, UUID conditionals, timestamp ranges, -00:00 exclusion —
+    originate from the model's Pydantic JSON Schema metadata and custom
+    ``__get_pydantic_json_schema__`` hooks. The exporter does NOT inject or
+    modify any business constraint.
     """
     # Generate schema from the Pydantic model.
     raw = ArtifactEnvelope.model_json_schema(mode="validation")
 
-    # Post-process: add schema metadata, flatten $defs, and reorder.
+    # Post-process: ONLY add stable document metadata and reorder keys.
     schema: dict[str, object] = dict(raw)
 
-    # Add stable metadata.
+    # Add stable metadata only.
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["$id"] = SCHEMA_ID
     schema["title"] = "ZADC Artifact Envelope"
@@ -101,14 +83,6 @@ def _build_envelope_schema() -> dict[str, object]:
         "Common artifact envelope for the Zutfen Agentic Development "
         "Contract v0.1. Every ZADC artifact MUST include this envelope."
     )
-
-    # Ensure additionalProperties is false at the top level.
-    schema["additionalProperties"] = False
-
-    # FIX2-C: Inject exact timestamp pattern into created_at.
-    properties = schema.get("properties")
-    if isinstance(properties, dict):
-        _inject_timestamp_pattern(properties)
 
     # Apply deterministic key ordering at the top level.
     schema = _reorder_dict(schema, _TOP_LEVEL_KEY_ORDER)

@@ -67,7 +67,10 @@ class TestSchemaTimestampMetadata:
         props = committed_schema["properties"]
         pattern = props["created_at"]["pattern"]
         # The pattern must contain the key ZADC timestamp elements
-        assert "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}" in pattern
+        # FIX3-B: pattern now uses numeric ranges ([01]\d|2[0-3] etc.)
+        assert "\\d{4}-\\d{2}-\\d{2}T" in pattern
+        assert "[01]\\d|2[0-3]" in pattern  # hour range
+        assert "[0-5]\\d" in pattern  # minute/second range
         assert "\\.\\d{1,6}" in pattern
         assert "Z" in pattern
         assert "[+-]" in pattern

@@ -110,3 +110,8 @@ exclude_also = [
     "raise SystemExit",
     "if TYPE_CHECKING:",
 ]
+
+[dependency-groups]
+dev = [
+    "rfc3339-validator>=0.1.4",
+]

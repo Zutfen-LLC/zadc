@@ -17,7 +17,7 @@ FIX2 corrections:
 """
 
 from datetime import UTC, datetime
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import (
     BaseModel,
@@ -36,6 +36,7 @@ from zadc.types import (
     GlobalId,
     Sha256Digest,
     SliceId,
+    TimestampField,
     normalize_timestamp_to_utc,
     validate_timestamp,
 )
@@ -135,7 +136,7 @@ class ArtifactEnvelope(_ZadcModel):
     contract_version: Literal[CONTRACT_VERSION]  # type: ignore[valid-type]
     artifact_type: ArtifactType
     artifact_id: GlobalId
-    created_at: datetime
+    created_at: Annotated[datetime, TimestampField]
     producer: ProducerIdentity
     project_id: GlobalId
     slice_id: SliceId
