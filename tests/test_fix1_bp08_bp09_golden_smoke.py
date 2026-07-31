@@ -20,10 +20,13 @@ from zadc import (
     canonical_json_text,
     compute_content_digest,
 )
+from zadc.types import CONTRACT_VERSION, SCHEMA_ID
 
 
 def _make_envelope() -> ArtifactEnvelope:
     return ArtifactEnvelope(
+        schema=SCHEMA_ID,
+        contract_version=CONTRACT_VERSION,
         artifact_type="packet",
         artifact_id="urn:uuid:00000000-0000-0000-0000-000000000001",
         created_at=datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC),
@@ -96,6 +99,7 @@ from zadc import (
     canonical_json_bytes,
     compute_content_digest,
 )
+from zadc.types import SCHEMA_ID, CONTRACT_VERSION
 from datetime import datetime, timezone
 import hashlib
 
@@ -104,6 +108,8 @@ result = canonical_json_bytes(data)
 print(hashlib.sha256(result).hexdigest())
 
 env = ArtifactEnvelope(
+    schema=SCHEMA_ID,
+    contract_version=CONTRACT_VERSION,
     artifact_type="packet",
     artifact_id="urn:uuid:00000000-0000-0000-0000-000000000050",
     created_at=datetime(2026, 7, 31, 12, 0, 0, tzinfo=timezone.utc),

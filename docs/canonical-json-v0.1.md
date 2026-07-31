@@ -46,7 +46,14 @@ text = canonical_json_text(sealed)  # direct model → canonical JSON
 The fixed dump profile ensures construction history does not affect output:
 omitted defaults and explicitly supplied defaults/nulls canonicalize identically.
 
-## No-float rule
+## Datetime normalization
+
+All timezone-aware datetimes are normalized to UTC and serialized as RFC 3339
+strings with uppercase `Z`. The ZADC Timestamp v0.1 profile restricts the
+accepted grammar to `YYYY-MM-DDTHH:MM:SS[.ffffff](Z|±HH:MM)` with uppercase
+T and Z, 1–6 fractional digits, no leap seconds (:60), and no unknown
+offset (-00:00). See [docs/api-a1-foundation.md](api-a1-foundation.md) for
+the full profile.
 
 Floating-point representations vary across languages, platforms, and library
 versions, making them unsuitable for deterministic digest computation. The

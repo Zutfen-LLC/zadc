@@ -17,10 +17,13 @@ from zadc import (
     compute_content_digest,
     seal_artifact,
 )
+from zadc.types import CONTRACT_VERSION, SCHEMA_ID
 
 
 def _make_base() -> ArtifactEnvelope:
     return ArtifactEnvelope(
+        schema=SCHEMA_ID,
+        contract_version=CONTRACT_VERSION,
         artifact_type="packet",
         artifact_id="urn:uuid:00000000-0000-0000-0000-000000000001",
         created_at=datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC),
@@ -111,6 +114,8 @@ class TestOffsetNormalization:
     def test_utc_vs_zero_offset(self) -> None:
         env_utc = _make_base()
         env_off = ArtifactEnvelope(
+            schema=SCHEMA_ID,
+            contract_version=CONTRACT_VERSION,
             artifact_type="packet",
             artifact_id="urn:uuid:00000000-0000-0000-0000-000000000001",
             created_at=datetime(2026, 7, 31, 12, 0, 0, tzinfo=timezone(timedelta(hours=0))),
@@ -130,6 +135,8 @@ class TestOffsetNormalization:
     def test_positive_offset_normalizes(self) -> None:
         env_utc = _make_base()
         env_pos = ArtifactEnvelope(
+            schema=SCHEMA_ID,
+            contract_version=CONTRACT_VERSION,
             artifact_type="packet",
             artifact_id="urn:uuid:00000000-0000-0000-0000-000000000001",
             created_at=datetime(

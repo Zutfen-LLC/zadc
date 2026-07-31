@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from zadc import ArtifactEnvelope, PolicyReference, ProducerIdentity, Provenance
-from zadc.types import validate_global_id, validate_slice_id
+from zadc.types import CONTRACT_VERSION, SCHEMA_ID, validate_global_id, validate_slice_id
 
 
 class TestGlobalIdAcceptance:
@@ -58,11 +58,11 @@ class TestGlobalIdRejection:
             validate_global_id("zutfen:\x00null")
 
     def test_reject_unicode_format(self) -> None:
-        with pytest.raises(ValueError, match="Unicode category"):
+        with pytest.raises(ValueError, match="non-ASCII"):
             validate_global_id("zutfen:\u200bzerowidth")
 
     def test_reject_unicode_surrogate(self) -> None:
-        with pytest.raises(ValueError, match="Unicode category"):
+        with pytest.raises(ValueError, match="non-ASCII"):
             validate_global_id("zutfen:\ud800surrogate")
 
     def test_reject_non_string(self) -> None:
@@ -90,6 +90,8 @@ class TestSliceIdAcceptance:
         from datetime import UTC, datetime
 
         env = ArtifactEnvelope(
+            schema=SCHEMA_ID,
+            contract_version=CONTRACT_VERSION,
             artifact_type="packet",
             artifact_id="urn:uuid:00000000-0000-0000-0000-000000000001",
             created_at=datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC),
@@ -138,6 +140,8 @@ class TestSliceIdRejection:
 
         with pytest.raises(ValidationError):
             ArtifactEnvelope(
+                schema=SCHEMA_ID,
+                contract_version=CONTRACT_VERSION,
                 artifact_type="packet",
                 artifact_id="urn:uuid:00000000-0000-0000-0000-000000000001",
                 created_at=datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC),

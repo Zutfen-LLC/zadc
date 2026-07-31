@@ -4,19 +4,20 @@ All models are strict (``extra=forbid``), frozen (immutable), and validated
 at construction. These implement architecture section 10 (Common artifact
 envelope) and the shared types from sections 9 and 11.
 
-FIX1-B corrections:
-- ``model_config`` uses ``strict=True`` to reject unintended Python-mode
-  coercions (int/float/Decimal/bool timestamps, non-string IDs/SHAs).
-- ``provenance.parent_artifact_ids`` uses an immutable tuple internally,
-  accepted as list or tuple at validation boundaries.
-- ``created_at`` uses a ``BeforeValidator`` that admits only ``datetime``
-  instances or RFC 3339 strings (from decoded JSON).
-- ``seal_artifact`` uses validated reconstruction (``model_validate``) not
-  unvalidated ``model_copy(update=...)``.
+FIX2 corrections:
+- ``schema`` and ``contract_version`` are now required Literal fields, emitting
+  JSON Schema ``const`` entries and ``required`` entries. They have NO defaults.
+- ``provenance.parent_artifact_ids`` is required (no default_factory) — root
+  artifacts must explicitly supply an empty array/tuple.
+- ``created_at`` validates the exact ZADC Timestamp v0.1 grammar via
+  ``validate_timestamp`` before parsing, rejecting ``datetime.fromisoformat``
+  over-acceptance.
+- Independent schema evidence is genuinely independent (Draft202012Validator +
+  FormatChecker + explicit pattern).
 """
 
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import (
     BaseModel,
@@ -35,6 +36,8 @@ from zadc.types import (
     GlobalId,
     Sha256Digest,
     SliceId,
+    normalize_timestamp_to_utc,
+    validate_timestamp,
 )
 
 
@@ -91,13 +94,14 @@ class Provenance(_ZadcModel):
     """Provenance chain for an artifact.
 
     Fields (architecture section 10, ``provenance``):
-    - ``parent_artifact_ids``: immutable tuple of parent artifact IDs.
+    - ``parent_artifact_ids``: REQUIRED immutable tuple of parent artifact IDs.
       Accepted as ``list`` or ``tuple`` at construction; internally immutable.
+      Root artifacts must explicitly supply an empty array/tuple.
     - ``content_digest``: optional SHA-256 digest of the artifact content.
       May be absent only before sealing.
     """
 
-    parent_artifact_ids: tuple[GlobalId, ...] = Field(default_factory=tuple)
+    parent_artifact_ids: tuple[GlobalId, ...]
     content_digest: Optional[Sha256Digest] = None
 
     @field_validator("parent_artifact_ids", mode="before")
@@ -115,14 +119,20 @@ class ArtifactEnvelope(_ZadcModel):
     Fields exactly follow architecture section 10. The envelope carries
     structural identity and provenance but NO status or authority field.
 
-    ``created_at`` MUST be timezone-aware. It accepts a ``datetime``
-    instance or an RFC 3339 string (from decoded JSON). Any accepted
-    timezone offset is normalized to UTC. Serialization uses uppercase
-    ``Z`` for the zero-offset designator.
+    FIX2-A: ``schema`` and ``contract_version`` are required Literal fields
+    that emit JSON Schema ``const`` entries. They have NO model defaults —
+    callers must supply them explicitly (at minimum through the alias or
+    field name). The ``model_json_schema(mode='validation')`` output marks
+    them as ``required`` with exact ``const`` values.
+
+    FIX2-C: ``created_at`` enforces the exact ZADC Timestamp v0.1 grammar
+    via ``validate_timestamp`` (regex fullmatch + calendar/wall-clock/offset
+    validation) before parsing to datetime. Normalizes to UTC and serializes
+    with uppercase ``Z``.
     """
 
-    schema_uri: str = Field(default=SCHEMA_ID, alias="schema")
-    contract_version: str = Field(default=CONTRACT_VERSION)
+    schema_uri: Literal[SCHEMA_ID] = Field(alias="schema")  # type: ignore[valid-type]
+    contract_version: Literal[CONTRACT_VERSION]  # type: ignore[valid-type]
     artifact_type: ArtifactType
     artifact_id: GlobalId
     created_at: datetime
@@ -133,24 +143,17 @@ class ArtifactEnvelope(_ZadcModel):
     policy: PolicyReference
     provenance: Provenance
 
-    @field_validator("contract_version")
-    @classmethod
-    def _validate_contract_version(cls, v: str) -> str:
-        if v != CONTRACT_VERSION:
-            raise ValueError(f"contract_version must be exactly '{CONTRACT_VERSION}'")
-        return v
-
-    @field_validator("schema_uri")
-    @classmethod
-    def _validate_schema(cls, v: str) -> str:
-        if v != SCHEMA_ID:
-            raise ValueError(f"schema must be exactly '{SCHEMA_ID}'")
-        return v
-
     @field_validator("created_at", mode="before")
     @classmethod
     def _validate_created_at(cls, v: object) -> datetime:
-        """Accept only datetime instances or RFC 3339 strings.
+        """Accept datetime instances or ZADC Timestamp v0.1 strings.
+
+        FIX2-C: String inputs must match the exact ZADC Timestamp v0.1 grammar
+        (YYYY-MM-DDTHH:MM:SS[.ffffff](Z|±HH:MM)). This rejects
+        ``datetime.fromisoformat`` over-acceptance examples including:
+        space separators, basic forms, week dates, ordinal dates, offsets
+        without colon, timezone-free strings, lowercase t/z, >6 fractional
+        digits, leap seconds (:60), and -00:00.
 
         Rejects int, float, Decimal, bool, bytes, naive datetime, and date.
         """
@@ -159,16 +162,13 @@ class ArtifactEnvelope(_ZadcModel):
                 raise ValueError("created_at must be timezone-aware")
             return v.astimezone(UTC)
         if isinstance(v, str):
-            try:
-                dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
-            except ValueError as exc:
-                raise ValueError(f"created_at must be a valid RFC 3339 string: {v!r}") from exc
-            if dt.tzinfo is None:
-                raise ValueError("created_at string must include a timezone offset")
-            return dt.astimezone(UTC)
+            # Step 1: Validate exact ZADC Timestamp v0.1 grammar.
+            validate_timestamp(v)
+            # Step 2: Parse deterministically (no fromisoformat).
+            return normalize_timestamp_to_utc(v)
         # Reject all other types — no coercion of int/float/bool/etc.
         raise TypeError(
-            f"created_at must be a timezone-aware datetime or RFC 3339 string, "
+            f"created_at must be a timezone-aware datetime or ZADC Timestamp v0.1 string, "
             f"not {type(v).__name__}"
         )
 

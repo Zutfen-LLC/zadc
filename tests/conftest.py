@@ -1,10 +1,11 @@
-"""Shared test fixtures for ZADC A1/FIX1 behavioral proofs."""
+"""Shared test fixtures for ZADC A1/FIX1/FIX2 behavioral proofs."""
 
 from datetime import UTC, datetime
 
 import pytest
 
 from zadc import ArtifactEnvelope, PolicyReference, ProducerIdentity, Provenance
+from zadc.types import CONTRACT_VERSION, SCHEMA_ID
 
 
 @pytest.fixture
@@ -52,6 +53,8 @@ def sample_envelope(
 ) -> ArtifactEnvelope:
     """A minimal valid unsealed ArtifactEnvelope."""
     return ArtifactEnvelope(
+        schema=SCHEMA_ID,
+        contract_version=CONTRACT_VERSION,
         artifact_type="packet",
         artifact_id="urn:uuid:00000000-0000-0000-0000-000000000001",
         created_at=datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC),

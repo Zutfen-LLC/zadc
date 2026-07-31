@@ -30,6 +30,8 @@ from datetime import datetime, timezone
 import json
 
 env = zadc.ArtifactEnvelope(
+    schema=zadc.SCHEMA_ID,
+    contract_version=zadc.CONTRACT_VERSION,
     artifact_type="packet",
     artifact_id="urn:uuid:00000000-0000-0000-0000-000000000050",
     created_at=datetime(2026, 7, 31, 12, 0, 0, tzinfo=timezone.utc),

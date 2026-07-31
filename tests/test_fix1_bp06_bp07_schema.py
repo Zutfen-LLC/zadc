@@ -20,6 +20,7 @@ from zadc import (
     canonical_json_text,
     seal_artifact,
 )
+from zadc.types import CONTRACT_VERSION, SCHEMA_ID
 
 # Add repo root for script import
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -46,6 +47,8 @@ def validator(committed_schema: dict[str, object]) -> Draft202012Validator:
 def _make_valid_canonical_json() -> str:
     """Create a valid canonical JSON for an envelope."""
     env = ArtifactEnvelope(
+        schema=SCHEMA_ID,
+        contract_version=CONTRACT_VERSION,
         artifact_type="packet",
         artifact_id="urn:uuid:00000000-0000-0000-0000-000000000001",
         created_at=datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC),
@@ -183,6 +186,8 @@ class TestIndependentValidation:
 
     def test_sealed_envelope_validates(self, validator: Draft202012Validator) -> None:
         env = ArtifactEnvelope(
+            schema=SCHEMA_ID,
+            contract_version=CONTRACT_VERSION,
             artifact_type="packet",
             artifact_id="urn:uuid:00000000-0000-0000-0000-000000000001",
             created_at=datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC),

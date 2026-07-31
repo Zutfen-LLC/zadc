@@ -11,7 +11,7 @@
         },
         "policy_id": {
           "minLength": 1,
-          "pattern": "^[a-zA-Z][a-zA-Z0-9+.\\-]*:",
+          "pattern": "^[a-z][a-z0-9+.\\-]*:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+$",
           "title": "Policy Id",
           "type": "string"
         },
@@ -35,7 +35,7 @@
       "properties": {
         "actor_id": {
           "minLength": 1,
-          "pattern": "^[a-zA-Z][a-zA-Z0-9+.\\-]*:",
+          "pattern": "^[a-z][a-z0-9+.\\-]*:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+$",
           "title": "Actor Id",
           "type": "string"
         },
@@ -78,7 +78,7 @@
           "anyOf": [
             {
               "minLength": 1,
-              "pattern": "^[a-zA-Z][a-zA-Z0-9+.\\-]*:",
+              "pattern": "^[a-z][a-z0-9+.\\-]*:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+$",
               "type": "string"
             },
             {
@@ -98,7 +98,7 @@
     },
     "Provenance": {
       "additionalProperties": false,
-      "description": "Provenance chain for an artifact.\n\nFields (architecture section 10, ``provenance``):\n- ``parent_artifact_ids``: immutable tuple of parent artifact IDs.\n  Accepted as ``list`` or ``tuple`` at construction; internally immutable.\n- ``content_digest``: optional SHA-256 digest of the artifact content.\n  May be absent only before sealing.",
+      "description": "Provenance chain for an artifact.\n\nFields (architecture section 10, ``provenance``):\n- ``parent_artifact_ids``: REQUIRED immutable tuple of parent artifact IDs.\n  Accepted as ``list`` or ``tuple`` at construction; internally immutable.\n  Root artifacts must explicitly supply an empty array/tuple.\n- ``content_digest``: optional SHA-256 digest of the artifact content.\n  May be absent only before sealing.",
       "properties": {
         "content_digest": {
           "anyOf": [
@@ -116,13 +116,16 @@
         "parent_artifact_ids": {
           "items": {
             "minLength": 1,
-            "pattern": "^[a-zA-Z][a-zA-Z0-9+.\\-]*:",
+            "pattern": "^[a-z][a-z0-9+.\\-]*:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+$",
             "type": "string"
           },
           "title": "Parent Artifact Ids",
           "type": "array"
         }
       },
+      "required": [
+        "parent_artifact_ids"
+      ],
       "title": "Provenance",
       "type": "object"
     }
@@ -134,7 +137,7 @@
   "properties": {
     "artifact_id": {
       "minLength": 1,
-      "pattern": "^[a-zA-Z][a-zA-Z0-9+.\\-]*:",
+      "pattern": "^[a-z][a-z0-9+.\\-]*:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+$",
       "title": "Artifact Id",
       "type": "string"
     },
@@ -153,12 +156,13 @@
       "type": "string"
     },
     "contract_version": {
-      "default": "0.1.0",
+      "const": "0.1.0",
       "title": "Contract Version",
       "type": "string"
     },
     "created_at": {
       "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|[+-]\\d{2}:\\d{2})$",
       "title": "Created At",
       "type": "string"
     },
@@ -170,7 +174,7 @@
     },
     "project_id": {
       "minLength": 1,
-      "pattern": "^[a-zA-Z][a-zA-Z0-9+.\\-]*:",
+      "pattern": "^[a-z][a-z0-9+.\\-]*:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+$",
       "title": "Project Id",
       "type": "string"
     },
@@ -178,7 +182,7 @@
       "$ref": "#/$defs/Provenance"
     },
     "schema": {
-      "default": "https://schemas.zutfen.com/zadc/0.1/artifact.schema.json",
+      "const": "https://schemas.zutfen.com/zadc/0.1/artifact.schema.json",
       "title": "Schema",
       "type": "string"
     },
@@ -198,6 +202,8 @@
     }
   },
   "required": [
+    "schema",
+    "contract_version",
     "artifact_type",
     "artifact_id",
     "created_at",

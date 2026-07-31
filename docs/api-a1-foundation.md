@@ -31,9 +31,24 @@ ArtifactType = Literal[
 ### GlobalId
 
 URI-shaped global identifier for artifact, project, actor, run, and policy
-references. Must have a syntactically valid URI scheme (e.g. `urn:uuid:`,
-`zutfen:`, `github:`). Rejects all Unicode category C characters. `urn:uuid:`
-identifiers must use canonical lowercase hex.
+references following the ZADC GlobalId v0.1 profile:
+
+- **Scheme**: Canonical lowercase ASCII `[a-z][a-z0-9+.-]*`
+- **Separator**: Colon `:`
+- **Scheme-specific part**: At least one ASCII RFC 3986 URI character
+  (unreserved/reserved/pct-encoded). Raw whitespace, controls, Unicode,
+  backslashes, quotes, and angle brackets are **rejected**, not normalized.
+- **Percent escapes**: Valid `%HH` sequences using uppercase hex only.
+- **Unicode**: Raw Unicode is rejected; use explicit percent-encoded UTF-8
+  when a future scheme permits it.
+- **UUID URNs**: Must be exactly `urn:uuid:` followed by the canonical
+  lowercase hyphenated UUID text (e.g.
+  `urn:uuid:00000000-0000-0000-0000-000000000001`). Malformed, uppercase-prefix,
+  uppercase-hex, unhyphenated, braced, or otherwise noncanonical UUID URNs
+  are rejected.
+
+This validator does NOT make network calls or attempt scheme-specific
+resource resolution.
 
 ### SliceId
 
@@ -60,20 +75,39 @@ internally.
 
 The common envelope shared by all ZADC artifacts (architecture section 10).
 
-Fields:
-- `schema` (alias for `schema_uri`)
-- `contract_version`: Always `0.1.0`
+**Required fields** (FIX2-A):
+- `schema` (alias for `schema_uri`): MUST be exactly
+  `https://schemas.zutfen.com/zadc/0.1/artifact.schema.json`. Emits a JSON
+  Schema `const` entry. No default — callers must supply it explicitly.
+- `contract_version`: MUST be exactly `0.1.0`. Emits a JSON Schema `const`
+  entry. No default — callers must supply it explicitly.
+
+Other fields:
 - `artifact_type`, `artifact_id`, `created_at`, `producer`, `project_id`
 - `slice_id`, `slice_instance_id`
 - `policy`: `PolicyReference`
 - `provenance`: `Provenance`
 
-`created_at` accepts a timezone-aware `datetime` or an RFC 3339 string.
-Rejects int, float, Decimal, bool, bytes, naive datetime, and date.
+`created_at` accepts a timezone-aware `datetime` or a ZADC Timestamp v0.1
+string. The ZADC Timestamp v0.1 grammar is:
+
+    YYYY-MM-DDTHH:MM:SS[.ffffff](Z|+HH:MM|-HH:MM)
+
+with uppercase `T` and `Z`. Fractional seconds: 1–6 digits only (Python
+datetime microsecond precision). Leap seconds (`:60`) and unknown offset
+(`-00:00`) are rejected in v0.1. Rejects int, float, Decimal, bool, bytes,
+naive datetime, date, and all `datetime.fromisoformat` over-acceptance
+examples (spaces, basic forms, week dates, ordinal dates, offsets without
+colon, lowercase t/z, trailing data).
+
+The generated JSON Schema emits both `format: date-time` and the exact
+ZADC Timestamp v0.1 `pattern` for `created_at`.
 
 ### Provenance
 
-- `parent_artifact_ids`: Immutable tuple of `GlobalId` (accepted as list/tuple)
+- `parent_artifact_ids`: **Required** (FIX2-A). Immutable tuple of `GlobalId`
+  (accepted as list/tuple). Root artifacts must explicitly supply an empty
+  array/tuple. The generated JSON Schema marks this field as `required`.
 - `content_digest`: Optional `Sha256Digest` (absent before sealing)
 
 ## Canonical JSON
@@ -117,6 +151,8 @@ from zadc import (
 
 # 1. Construct
 envelope = ArtifactEnvelope(
+    schema="https://schemas.zutfen.com/zadc/0.1/artifact.schema.json",
+    contract_version="0.1.0",
     artifact_type="packet",
     artifact_id="urn:uuid:00000000-0000-0000-0000-000000000001",
     created_at=datetime(2026, 7, 31, 12, 0, 0, tzinfo=timezone.utc),
