@@ -105,7 +105,7 @@ jobs:
         run: uv sync --frozen --extra dev --python ${{ matrix.python-version }}
 
       - name: Run pytest
-        run: uv run python -m pytest
+        run: uv run --python ${{ matrix.python-version }} python -m pytest
 
   package:
     name: package
