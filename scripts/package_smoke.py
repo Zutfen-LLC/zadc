@@ -46,10 +46,10 @@ def main() -> int:
             print(f"FAIL: Could not create venv: {result.stderr}")
             return 1
 
-        # Install the wheel
+        # Install the wheel (with runtime dependencies)
         print(f"Installing {wheel.name}...")
         result = subprocess.run(
-            [venv_python, "-m", "pip", "install", str(wheel), "--no-deps"],
+            [venv_python, "-m", "pip", "install", str(wheel)],
             capture_output=True,
             text=True,
         )

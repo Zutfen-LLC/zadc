@@ -35,14 +35,18 @@ class TestVersion:
             assert "unknown" in zadc.get_version().lower()
 
 
-class TestNoRuntimeDependencies:
-    def test_no_runtime_dependencies(self) -> None:
-        """The package must declare zero runtime dependencies in ZADC-000."""
+class TestRuntimeDependencies:
+    def test_pydantic_is_only_runtime_dependency(self) -> None:
+        """The package must declare exactly one runtime dependency: pydantic v2."""
         metadata = importlib.metadata.metadata("zutfen-zadc")
         requires = metadata.get_all("Requires-Dist") or []
         # Filter out optional (dev) extras; only check unconditional runtime deps
         runtime_requires = [r for r in requires if "extra ==" not in r]
-        assert len(runtime_requires) == 0, f"Expected no runtime deps, found: {runtime_requires}"
+        assert len(runtime_requires) == 1, (
+            f"Expected exactly 1 runtime dep (pydantic), found: {runtime_requires}"
+        )
+        dep = runtime_requires[0]
+        assert "pydantic" in dep.lower(), f"Expected pydantic, found: {dep}"
 
     def test_py_typed_marker_present(self) -> None:
         """``py.typed`` marker must be present for type checking."""

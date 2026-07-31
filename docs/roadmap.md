@@ -6,7 +6,7 @@ and must be independently reviewed before advancement.
 
 ## ZADC-000 — Universal Repository Bootstrap
 
-**Status:** In progress
+**Status:** Complete (PR #1, merge SHA `1764081bd71c6513c867126256a602d107b55d47`)
 
 Create the universal ZADC repository, establish a clean installable Python
 foundation, configure CI/CD, and open a draft PR. No protocol functionality
@@ -16,10 +16,23 @@ is implemented.
 
 ### ZADC-001A — Canonical artifacts and rendering
 
+**Status:** Active
+
 Define the canonical artifact model: packet, completion report,
 certification manifest, review report, human decision record. Implement
 common envelope, canonical serialization, content digests, and rendered
 views for multiple consumers (Hermes, Codex, Claude, CI, human).
+
+Sub-slices:
+
+- **A1 — Foundation:** Common artifact envelope, constrained shared types,
+  ZADC Canonical JSON v0.1, SHA-256 digest sealing and verification,
+  reproducible JSON Schema. (Current)
+- **A2 — Concrete models:** Packet, CompletionReport, CertificationManifest,
+  ReviewReport, DecisionRecord, WorkflowBundle, EvidenceArtifact, Observation
+  body models.
+- **A3 — Rendered views:** Consumer-specific renderers for Hermes, Codex,
+  Claude, CI, and human-readable output.
 
 ### ZADC-001B — Workflow bundles and derived lifecycle
 

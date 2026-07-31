@@ -1,0 +1,160 @@
+{
+  "$id": "https://schemas.zutfen.com/zadc/0.1/artifact.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Common artifact envelope for the Zutfen Agentic Development Contract v0.1. Every ZADC artifact MUST include this envelope.",
+  "properties": {
+    "artifact_id": {
+      "minLength": 1,
+      "pattern": "^[^\\s]+(.*[^\\s]+)?$",
+      "type": "string"
+    },
+    "artifact_type": {
+      "enum": [
+        "packet",
+        "completion_report",
+        "certification_manifest",
+        "review_report",
+        "decision_record",
+        "workflow_bundle",
+        "evidence_artifact",
+        "observation"
+      ],
+      "type": "string"
+    },
+    "contract_version": {
+      "const": "0.1.0",
+      "type": "string"
+    },
+    "created_at": {
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$",
+      "type": "string"
+    },
+    "policy": {
+      "additionalProperties": false,
+      "properties": {
+        "policy_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "policy_id": {
+          "minLength": 1,
+          "pattern": "^[^\\s]+(.*[^\\s]+)?$",
+          "type": "string"
+        },
+        "policy_source_sha": {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "policy_source_sha",
+        "policy_digest"
+      ],
+      "type": "object"
+    },
+    "producer": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "minLength": 1,
+          "pattern": "^[^\\s]+(.*[^\\s]+)?$",
+          "type": "string"
+        },
+        "actor_type": {
+          "enum": [
+            "human",
+            "agent",
+            "ci",
+            "validator",
+            "service"
+          ],
+          "type": "string"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "pattern": "^[^\\s]+(.*[^\\s]+)?$",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "actor_type",
+        "actor_id"
+      ],
+      "type": "object"
+    },
+    "project_id": {
+      "minLength": 1,
+      "pattern": "^[^\\s]+(.*[^\\s]+)?$",
+      "type": "string"
+    },
+    "provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "content_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parent_artifact_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "^[^\\s]+(.*[^\\s]+)?$",
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "parent_artifact_ids"
+      ],
+      "type": "object"
+    },
+    "schema": {
+      "const": "https://schemas.zutfen.com/zadc/0.1/artifact.schema.json",
+      "type": "string"
+    },
+    "slice_id": {
+      "minLength": 1,
+      "pattern": "^[^\\s]+(.*[^\\s]+)?$",
+      "type": "string"
+    },
+    "slice_instance_id": {
+      "minLength": 1,
+      "pattern": "^[^\\s]+(.*[^\\s]+)?$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "contract_version",
+    "artifact_type",
+    "artifact_id",
+    "created_at",
+    "producer",
+    "project_id",
+    "slice_id",
+    "slice_instance_id",
+    "policy",
+    "provenance"
+  ],
+  "title": "ZADC Artifact Envelope",
+  "type": "object"
+}
