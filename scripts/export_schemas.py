@@ -1,26 +1,33 @@
 #!/usr/bin/env python3
-"""Export the ZADC artifact-envelope JSON Schema deterministically.
+"""Export ZADC JSON Schemas deterministically, one file per artifact model.
 
-Generates a Draft 2020-12 JSON Schema from ``ArtifactEnvelope.model_json_schema()``
-with deterministic post-processing for stable output. The output file uses
-sorted pretty JSON with a final newline.
+Generates Draft 2020-12 JSON Schemas from each model's
+``model_json_schema()`` output with deterministic post-processing for
+stable output. Output files use sorted pretty JSON with a final newline.
 
-FIX1-E: The schema is derived from the Pydantic model, not hand-written.
+FIX1-E: Schemas are derived from the Pydantic models, not hand-written.
 
 FIX2-A: ``schema`` and ``contract_version`` emit ``const`` entries from
 Literal types. They are ``required`` with no defaults.
 
 FIX3-C: ALL business constraints are model-owned. The exporter does NOT
-inject or modify any business constraints (patterns, required, const,
+inject or modify any business constraint (patterns, required, const,
 allOf, if/then, not, format, enum, additionalProperties). Exporter
 post-processing is limited to:
 - Stable document metadata ($schema, $id, title, description)
 - Deterministic key ordering for presentation
+
+A2A-10: The exporter is data-driven over a fixed list of (model, output
+filename, $id, title, description) specs covering the common envelope and
+all five A2A artifact models. ``export_schema()`` is retained with its
+original signature and behavior (single artifact-envelope export) for
+backward compatibility with existing callers.
 """
 
 import argparse
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 # Add src to path for direct script execution
@@ -29,8 +36,21 @@ _SRC_DIR = _REPO_ROOT / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
+from pydantic import BaseModel  # noqa: E402
+
+from zadc.models.certification_manifest import CertificationManifest  # noqa: E402
 from zadc.models.common import ArtifactEnvelope  # noqa: E402
+from zadc.models.completion_report import CompletionReport  # noqa: E402
+from zadc.models.evidence_artifact import EvidenceArtifact  # noqa: E402
+from zadc.models.observation import Observation  # noqa: E402
+from zadc.models.packet import Packet  # noqa: E402
 from zadc.types import SCHEMA_ID  # noqa: E402
+
+#: Base URL for the per-model $id of every A2A concrete-artifact schema.
+#: The artifact-envelope schema keeps its historical $id (SCHEMA_ID) rather
+#: than adopting this base, to remain byte-identical with the committed A1
+#: schema file.
+_SCHEMA_BASE_URL = "https://schemas.zutfen.com/zadc/0.1"
 
 # Key-order map for deterministic top-level ordering.
 # We place these before the Pydantic-generated keys.
@@ -46,6 +66,94 @@ _TOP_LEVEL_KEY_ORDER = [
 ]
 
 
+@dataclass(frozen=True)
+class _SchemaSpec:
+    """One (model, output file, document metadata) schema export target."""
+
+    model: type[BaseModel]
+    filename: str
+    schema_id: str
+    title: str
+    description: str
+
+
+_SCHEMA_SPECS: tuple[_SchemaSpec, ...] = (
+    _SchemaSpec(
+        model=ArtifactEnvelope,
+        filename="artifact-envelope.schema.json",
+        schema_id=SCHEMA_ID,
+        title="ZADC Artifact Envelope",
+        description=(
+            "Common artifact envelope for the Zutfen Agentic Development "
+            "Contract v0.1. Every ZADC artifact MUST include this envelope."
+        ),
+    ),
+    _SchemaSpec(
+        model=Packet,
+        filename="packet.schema.json",
+        schema_id=f"{_SCHEMA_BASE_URL}/packet.schema.json",
+        title="ZADC Packet",
+        description=(
+            "The authoritative, human-approved work authorization artifact "
+            "for the Zutfen Agentic Development Contract v0.1 (architecture "
+            "section 11.1). Packet immutability in this slice is structural "
+            "only; trusted-human authorization binding is deferred."
+        ),
+    ),
+    _SchemaSpec(
+        model=CompletionReport,
+        filename="completion-report.schema.json",
+        schema_id=f"{_SCHEMA_BASE_URL}/completion-report.schema.json",
+        title="ZADC Completion Report",
+        description=(
+            "The execution agent's completion claim artifact for the "
+            "Zutfen Agentic Development Contract v0.1 (architecture "
+            "section 11.2). Records claims and local observations; it does "
+            "not confer verified status."
+        ),
+    ),
+    _SchemaSpec(
+        model=CertificationManifest,
+        filename="certification-manifest.schema.json",
+        schema_id=f"{_SCHEMA_BASE_URL}/certification-manifest.schema.json",
+        title="ZADC Certification Manifest",
+        description=(
+            "Trusted verification results bound to an exact commit subject "
+            "for the Zutfen Agentic Development Contract v0.1 (architecture "
+            "section 11.3). Produced by trusted CI or a trusted local "
+            "verifier, never by the execution agent."
+        ),
+    ),
+    _SchemaSpec(
+        model=EvidenceArtifact,
+        filename="evidence-artifact.schema.json",
+        schema_id=f"{_SCHEMA_BASE_URL}/evidence-artifact.schema.json",
+        title="ZADC Evidence Artifact",
+        description=(
+            "Metadata and binding for one piece of external verification "
+            "evidence for the Zutfen Agentic Development Contract v0.1 "
+            "(architecture section 8.9). Records evidence metadata and "
+            "binding only; does not fetch or verify remote evidence."
+        ),
+    ),
+    _SchemaSpec(
+        model=Observation,
+        filename="observation.schema.json",
+        schema_id=f"{_SCHEMA_BASE_URL}/observation.schema.json",
+        title="ZADC Observation",
+        description=(
+            "A timestamped statement derived from a named source for the "
+            "Zutfen Agentic Development Contract v0.1 (architecture "
+            "section 8.14). A timestamped record, not a declaration of "
+            "current truth."
+        ),
+    ),
+)
+
+#: The artifact-envelope spec, kept addressable for ``_build_envelope_schema``.
+_ENVELOPE_SPEC = _SCHEMA_SPECS[0]
+
+
 def _reorder_dict(data: dict[str, object], key_order: list[str]) -> dict[str, object]:
     """Reorder dict keys with the given order first, then alphabetical."""
     result: dict[str, object] = {}
@@ -57,37 +165,35 @@ def _reorder_dict(data: dict[str, object], key_order: list[str]) -> dict[str, ob
     return result
 
 
+def _build_schema_for_spec(spec: _SchemaSpec) -> dict[str, object]:
+    """Build the JSON Schema for one spec's model with deterministic post-processing.
+
+    FIX3-C: All business constraints — const values, required fields, enums,
+    patterns, UUID conditionals, timestamp ranges, -00:00 exclusion, model
+    cross-field invariants surfaced as schema constraints — originate from
+    the model's Pydantic JSON Schema metadata and custom
+    ``__get_pydantic_json_schema__`` hooks. The exporter does NOT inject or
+    modify any business constraint; it adds only stable document metadata
+    and deterministic key ordering.
+    """
+    raw = spec.model.model_json_schema(mode="validation")
+
+    schema: dict[str, object] = dict(raw)
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["$id"] = spec.schema_id
+    schema["title"] = spec.title
+    schema["description"] = spec.description
+
+    return _reorder_dict(schema, _TOP_LEVEL_KEY_ORDER)
+
+
 def _build_envelope_schema() -> dict[str, object]:
     """Build the JSON Schema for ArtifactEnvelope from the model.
 
-    Uses ``ArtifactEnvelope.model_json_schema(mode='validation')`` to derive
-    the schema, then applies deterministic post-processing.
-
-    FIX3-C: All business constraints — const values, required fields, enums,
-    patterns, UUID conditionals, timestamp ranges, -00:00 exclusion —
-    originate from the model's Pydantic JSON Schema metadata and custom
-    ``__get_pydantic_json_schema__`` hooks. The exporter does NOT inject or
-    modify any business constraint.
+    Retained under its original name for backward compatibility with
+    existing test callers. Delegates to :func:`_build_schema_for_spec`.
     """
-    # Generate schema from the Pydantic model.
-    raw = ArtifactEnvelope.model_json_schema(mode="validation")
-
-    # Post-process: ONLY add stable document metadata and reorder keys.
-    schema: dict[str, object] = dict(raw)
-
-    # Add stable metadata only.
-    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-    schema["$id"] = SCHEMA_ID
-    schema["title"] = "ZADC Artifact Envelope"
-    schema["description"] = (
-        "Common artifact envelope for the Zutfen Agentic Development "
-        "Contract v0.1. Every ZADC artifact MUST include this envelope."
-    )
-
-    # Apply deterministic key ordering at the top level.
-    schema = _reorder_dict(schema, _TOP_LEVEL_KEY_ORDER)
-
-    return schema
+    return _build_schema_for_spec(_ENVELOPE_SPEC)
 
 
 def _serialize_schema_pretty(schema: dict[str, object]) -> str:
@@ -101,8 +207,21 @@ def _serialize_schema_pretty(schema: dict[str, object]) -> str:
     return text + "\n"
 
 
+def _write_schema(spec: _SchemaSpec, target_dir: Path) -> Path:
+    """Build and write one schema spec's output file."""
+    schema = _build_schema_for_spec(spec)
+    text = _serialize_schema_pretty(schema)
+    target = target_dir / spec.filename
+    target.write_text(text, encoding="utf-8")
+    return target
+
+
 def export_schema(output_dir: Path | None = None) -> Path:
     """Export the artifact-envelope schema to disk.
+
+    Retained with its original signature and behavior for backward
+    compatibility with existing callers. Use :func:`export_all_schemas`
+    to export every A2A schema.
 
     Args:
         output_dir: Base output directory. Defaults to ``schemas/`` relative
@@ -117,18 +236,31 @@ def export_schema(output_dir: Path | None = None) -> Path:
     target_dir = output_dir / "0.1"
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    schema = _build_envelope_schema()
-    text = _serialize_schema_pretty(schema)
-    target = target_dir / "artifact-envelope.schema.json"
-    target.write_text(text, encoding="utf-8")
-    return target
+    return _write_schema(_ENVELOPE_SPEC, target_dir)
+
+
+def export_all_schemas(output_dir: Path | None = None) -> list[Path]:
+    """Export the artifact-envelope schema and every A2A artifact schema.
+
+    Args:
+        output_dir: Base output directory. Defaults to ``schemas/`` relative
+            to the repository root.
+
+    Returns:
+        The paths to every written schema file, in spec-declaration order.
+    """
+    if output_dir is None:
+        output_dir = _REPO_ROOT / "schemas"
+
+    target_dir = output_dir / "0.1"
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    return [_write_schema(spec, target_dir) for spec in _SCHEMA_SPECS]
 
 
 def main() -> int:
     """CLI entry point for schema export."""
-    parser = argparse.ArgumentParser(
-        description="Export ZADC artifact-envelope JSON Schema deterministically."
-    )
+    parser = argparse.ArgumentParser(description="Export ZADC JSON Schemas deterministically.")
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -137,8 +269,9 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    target = export_schema(args.output_dir)
-    print(f"Schema exported to: {target}")
+    targets = export_all_schemas(args.output_dir)
+    for target in targets:
+        print(f"Schema exported to: {target}")
     return 0
 
 

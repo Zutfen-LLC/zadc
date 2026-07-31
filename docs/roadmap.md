@@ -27,10 +27,15 @@ Sub-slices:
 
 - **A1 — Foundation:** Common artifact envelope, constrained shared types,
   ZADC Canonical JSON v0.1, SHA-256 digest sealing and verification,
-  reproducible JSON Schema. (Current)
-- **A2 — Concrete models:** Packet, CompletionReport, CertificationManifest,
-  ReviewReport, DecisionRecord, WorkflowBundle, EvidenceArtifact, Observation
-  body models.
+  reproducible JSON Schema. **Complete.**
+- **A2A — Execution and evidence artifacts:** Packet, CompletionReport,
+  CertificationManifest, EvidenceArtifact, and Observation body models,
+  reusable timestamp/text/enum types, subclass-preserving digest sealing,
+  and a data-driven multi-schema exporter. No workflow lifecycle, policy
+  evaluation, review, human decisions, provider adapters, or rendering.
+  (Current)
+- **A2B — Review and decision artifacts:** ReviewReport, DecisionRecord,
+  WorkflowBundle body models, and the global discriminated artifact union.
 - **A3 — Rendered views:** Consumer-specific renderers for Hermes, Codex,
   Claude, CI, and human-readable output.
 
