@@ -278,12 +278,15 @@ class TestDeterministicToolPins:
         )
 
     def test_actionlint_install_script_has_sha256(self) -> None:
-        """The actionlint install script must verify a committed SHA-256."""
+        """The actionlint install script must verify committed SHA-256 values
+        from the platform manifest."""
         script = (REPO_ROOT / "scripts/install_actionlint.sh").read_text()
-        assert "ACTIONLINT_SHA256=" in script, (
-            "actionlint install must verify a committed SHA-256 digest"
+        assert "EXPECTED_SHA256" in script, (
+            "actionlint install must use committed SHA-256 digests from manifest"
         )
-        assert "sha256sum" in script, "actionlint install must run sha256sum verification"
+        assert "sha256sum" in script or "shasum" in script, (
+            "actionlint install must run checksum verification"
+        )
 
     def test_no_mutable_actionlint_download(self) -> None:
         """CI must not download actionlint from a mutable branch ref."""
@@ -335,6 +338,21 @@ class TestFailClosedWorkflowLint:
         script = (REPO_ROOT / "scripts/run_workflow_lint.sh").read_text()
         assert "exit 1" in script, "run_workflow_lint.sh must have nonzero exit on failure"
         assert "FAIL:" in script or "exit 1" in script
+
+    def test_no_preinstalled_actionlint_fallback(self) -> None:
+        """The workflow-lint script must not fall back to a preinstalled or
+        PATH actionlint binary. It must always use the deterministic installer."""
+        script = (REPO_ROOT / "scripts/run_workflow_lint.sh").read_text()
+        assert "fall back" not in script.lower(), (
+            "run_workflow_lint.sh must not contain fallback language"
+        )
+        assert "pre-installed" not in script.lower(), (
+            "run_workflow_lint.sh must not use pre-installed actionlint"
+        )
+        # Must always call the deterministic installer
+        assert "install_actionlint.sh" in script, (
+            "run_workflow_lint.sh must use install_actionlint.sh"
+        )
 
 
 class TestFailClosedPreCommit:
