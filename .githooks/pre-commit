@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Pre-commit hook for ZADC.
+# Runs the same quality gate as `make check`.
+# Does not require a globally installed pre-commit framework.
+
+set -euo pipefail
+
+echo "[zadc pre-commit] Running make check..."
+
+# Find the repository root from the hook location
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$HOOK_DIR/.." && pwd)"
+
+cd "$REPO_ROOT"
+
+if command -v uv >/dev/null 2>&1; then
+    if make check 2>&1; then
+        echo "[zadc pre-commit] OK: All checks passed"
+        exit 0
+    else
+        echo "[zadc pre-commit] FAIL: Checks failed. Fix errors before committing."
+        exit 1
+    fi
+else
+    echo "[zadc pre-commit] WARNING: uv not found. Skipping checks."
+    echo "Install uv and run 'make sync' to enable pre-commit checks."
+    exit 0
+fi
