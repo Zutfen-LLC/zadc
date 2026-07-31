@@ -1,43 +1,24 @@
-"""A1-BP-009: Wheel/sdist and clean-venv smoke import public API and
-complete construct/seal/serialize/verify."""
+"""FIX1-BP-09: Package/API documentation remains usable.
 
-from __future__ import annotations
+Clean-venv wheel/sdist smoke constructs, seals, directly canonicalizes,
+reloads, and verifies an envelope.
+"""
 
 import glob
 import os
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
 
 import pytest
-
-
-@pytest.fixture
-def repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent
-
-
-def _find_wheel(dist_dir: Path) -> Path:
-    wheels = glob.glob(str(dist_dir / "*.whl"))
-    assert wheels, f"No wheel found in {dist_dir}"
-    return Path(wheels[0])
-
-
-def _find_sdist(dist_dir: Path) -> Path:
-    sdists = glob.glob(str(dist_dir / "*.tar.gz"))
-    assert sdists, f"No sdist found in {dist_dir}"
-    return Path(sdists[0])
-
 
 _SMOKE_CODE = """
 import zadc
 
-# Verify all public API names are importable
 required_names = [
     "ActorType", "ArtifactType", "ArtifactEnvelope",
     "ProducerIdentity", "PolicyReference", "Provenance",
-    "Sha256Digest", "GitSha",
+    "GlobalId", "SliceId", "Sha256Digest", "GitSha",
     "canonical_json_bytes", "canonical_json_text",
     "compute_content_digest", "seal_artifact", "verify_content_digest",
     "DigestMissingError", "DigestMismatchError",
@@ -45,7 +26,6 @@ required_names = [
 for name in required_names:
     assert hasattr(zadc, name), f"zadc is missing public name: {name}"
 
-# Construct -> seal -> serialize -> reload -> verify
 from datetime import datetime, timezone
 import json
 
@@ -64,64 +44,63 @@ env = zadc.ArtifactEnvelope(
         policy_source_sha="a" * 40,
         policy_digest="sha256:" + "b" * 64,
     ),
-    provenance=zadc.Provenance(parent_artifact_ids=[]),
+    provenance=zadc.Provenance(parent_artifact_ids=()),
 )
 
-# Seal
+# Direct model canonicalization (FIX1-C)
+canonical = zadc.canonical_json_text(env)
+assert isinstance(canonical, str)
+
+# Seal (FIX1-B)
 sealed = zadc.seal_artifact(env)
 assert sealed.provenance.content_digest is not None
 
-# Serialize
-data = sealed.model_dump(mode="json", by_alias=True)
-json_str = json.dumps(data, sort_keys=True)
+# Serialize and reload
+data = json.loads(zadc.canonical_json_text(sealed))
+reloaded = zadc.ArtifactEnvelope.model_validate(data)
 
-# Reload
-reloaded_data = json.loads(json_str)
-reloaded = zadc.ArtifactEnvelope.model_validate(reloaded_data)
-
-# Verify
+# Verify (FIX1-A)
 zadc.verify_content_digest(reloaded)
-
-# Canonical JSON
-canonical = zadc.canonical_json_text(data)
-assert isinstance(canonical, str)
 
 print("SMOKE_OK")
 """
 
 
-class TestPackageSmokeCleanVenv:
-    """Install wheel in a clean venv and run the full smoke test."""
+@pytest.fixture
+def repo_root() -> str:
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    def test_wheel_imports_and_round_trip(self, repo_root: Path) -> None:
-        dist_dir = repo_root / "dist"
-        if not dist_dir.exists() or not glob.glob(str(dist_dir / "*.whl")):
+
+class TestPackageSmokeCleanVenv:
+    """Clean-venv wheel/sdist smoke test."""
+
+    def test_wheel_construct_seal_canonicalize_reload_verify(self, repo_root: str) -> None:
+        dist_dir = os.path.join(repo_root, "dist")
+        wheels = glob.glob(os.path.join(dist_dir, "*.whl"))
+        if not wheels:
             pytest.skip("dist/ not built yet — run 'make build' first")
 
-        wheel = _find_wheel(dist_dir)
+        wheel = wheels[0]
         python = sys.executable
 
-        with tempfile.TemporaryDirectory(prefix="zadc-bp009-") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="zadc-fix1-bp09-") as tmpdir:
             venv_dir = os.path.join(tmpdir, "venv")
             venv_python = os.path.join(venv_dir, "bin", "python")
 
-            # Create clean venv
             result = subprocess.run(
                 [python, "-m", "venv", venv_dir],
                 capture_output=True,
                 text=True,
             )
-            assert result.returncode == 0, f"venv creation failed: {result.stderr}"
+            assert result.returncode == 0
 
-            # Install wheel with dependencies (pydantic is a runtime dep)
             result = subprocess.run(
-                [venv_python, "-m", "pip", "install", str(wheel)],
+                [venv_python, "-m", "pip", "install", wheel],
                 capture_output=True,
                 text=True,
             )
             assert result.returncode == 0, f"pip install failed: {result.stderr}"
 
-            # Run smoke code
             result = subprocess.run(
                 [venv_python, "-c", _SMOKE_CODE],
                 capture_output=True,

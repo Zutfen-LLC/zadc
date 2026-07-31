@@ -1,20 +1,22 @@
 """Content digest computation, sealing, and verification for ZADC artifacts.
 
 The content digest is SHA-256 of the ZADC Canonical JSON v0.1 bytes of
-the artifact envelope, with the ``provenance.content_digest`` field
-excluded (set to ``None``) before serialization.
+the artifact envelope, with the ``provenance.content_digest`` member
+*removed entirely* from the canonical digest payload (not set to null).
+
+FIX1-A correction: the ``content_digest`` key is completely removed from
+the payload dict before canonical serialization, not set to ``None``.
+
+FIX1-B correction: ``seal_artifact`` uses validated reconstruction
+(``model_validate``) rather than unvalidated ``model_copy(update=...)``.
 
 Public API:
-- :func:`compute_content_digest`: Compute the digest for an unsealed or
-  sealed envelope. Always ignores any existing ``content_digest``.
-- :func:`seal_artifact`: Return a new immutable copy of the envelope with
+- :func:`compute_content_digest`: Compute the digest for an envelope.
+  Always removes any existing ``content_digest`` before computation.
+- :func:`seal_artifact`: Return a new validated envelope with
   ``content_digest`` set to the computed digest.
-- :func:`verify_content_digest`: Verify that the stored digest matches the
-  recomputed digest. Raises :class:`DigestMissingError` if no digest is
-  present, or :class:`DigestMismatchError` if the digests differ.
+- :func:`verify_content_digest`: Verify the stored digest matches.
 """
-
-from __future__ import annotations
 
 import hashlib
 import hmac
@@ -25,32 +27,43 @@ from zadc.models.common import ArtifactEnvelope
 
 
 def _envelope_to_digest_input(envelope: ArtifactEnvelope) -> bytes:
-    """Convert an envelope to canonical JSON bytes with content_digest excluded.
+    """Convert an envelope to canonical JSON bytes with content_digest removed.
 
-    The ``provenance.content_digest`` field is set to ``None`` before
-    serialization. The input model is never mutated.
+    The ``provenance.content_digest`` key is *removed entirely* from the
+    payload dict before canonical serialization. The input model is never
+    mutated. No other field is excluded.
     """
-    # Dump the model to a JSON-compatible dict (with aliases, all fields).
     data = envelope.model_dump(
         mode="json",
         by_alias=True,
         exclude_none=False,
+        exclude_defaults=False,
+        exclude_unset=False,
     )
 
-    # Remove the content_digest from the provenance sub-dict.
-    # This is the ONLY field excluded from digest computation.
+    # Remove content_digest entirely from the provenance sub-dict.
     provenance = data["provenance"]
-    provenance["content_digest"] = None
+    provenance.pop("content_digest", None)
 
     return canonical_json_bytes(data)
+
+
+def get_digest_input_bytes(envelope: ArtifactEnvelope) -> bytes:
+    """Return the exact canonical digest-input bytes for an envelope.
+
+    This is a narrow, test-visible helper that exposes the digest payload
+    so tests can assert the absence of ``content_digest`` from the raw bytes.
+    It is not part of the public API surface used by consumers.
+    """
+    return _envelope_to_digest_input(envelope)
 
 
 def compute_content_digest(envelope: ArtifactEnvelope) -> str:
     """Compute the content digest for an artifact envelope.
 
     The digest is ``sha256:`` followed by 64 lowercase hex characters.
-    It is computed over the canonical JSON bytes of the envelope with
-    ``provenance.content_digest`` set to ``None``.
+    It is computed over canonical JSON bytes of the envelope with
+    ``provenance.content_digest`` *removed entirely* from the payload.
 
     This function never mutates the input envelope. It is safe to call
     on both sealed and unsealed envelopes — the result is identical.
@@ -67,26 +80,33 @@ def compute_content_digest(envelope: ArtifactEnvelope) -> str:
 
 
 def seal_artifact(envelope: ArtifactEnvelope) -> ArtifactEnvelope:
-    """Return a new immutable copy of the envelope with the content digest set.
+    """Return a new validated envelope with the content digest set.
 
-    The input envelope is never mutated. If the envelope is already sealed
-    (``content_digest`` is not ``None``), the existing digest is replaced
-    with a freshly computed one. However, since the digest is computed
-    over the envelope with ``content_digest`` set to ``None``, re-sealing
-    an unmodified envelope produces the same digest (idempotent).
+    Uses validated reconstruction: the full envelope payload is dumped,
+    the digest is inserted, and the result is re-validated via
+    ``model_validate``. This prevents unvalidated nested mutations.
 
-    The returned model is a new frozen instance.
+    The input envelope is never mutated. Re-sealing an unmodified
+    sealed envelope produces the same digest (idempotent).
 
     Args:
         envelope: An :class:`ArtifactEnvelope` instance.
 
     Returns:
-        A new :class:`ArtifactEnvelope` with ``content_digest`` populated.
+        A new validated :class:`ArtifactEnvelope` with ``content_digest``
+        populated.
     """
     digest = compute_content_digest(envelope)
-    # Use model_copy with update to create a new frozen instance.
-    new_provenance = envelope.provenance.model_copy(update={"content_digest": digest})
-    return envelope.model_copy(update={"provenance": new_provenance})
+    # Validated reconstruction: dump, insert digest, re-validate.
+    data = envelope.model_dump(
+        mode="python",
+        by_alias=True,
+        exclude_none=False,
+        exclude_defaults=False,
+        exclude_unset=False,
+    )
+    data["provenance"]["content_digest"] = digest
+    return ArtifactEnvelope.model_validate(data)
 
 
 def verify_content_digest(
@@ -96,29 +116,18 @@ def verify_content_digest(
 ) -> str:
     """Verify that the stored content digest matches the recomputed digest.
 
-    The recomputed digest is computed the same way as
-    :func:`compute_content_digest` — over canonical bytes with
-    ``content_digest`` set to ``None``.
+    Uses constant-time comparison via ``hmac.compare_digest``. Never repairs.
 
     Args:
         envelope: An :class:`ArtifactEnvelope` instance.
-        repair: If ``True``, the function repairs a mismatched digest.
-            Defaults to ``False`` — the function never repairs.
+        repair: Always ``False``. If ``True``, raises ``ValueError``.
 
     Returns:
         The expected (recomputed) content digest string.
 
     Raises:
-        DigestMissingError: If ``content_digest`` is ``None`` (envelope
-            has not been sealed).
-        DigestMismatchError: If the stored digest does not match the
-            recomputed digest. Never raised when ``repair=True``.
-
-    .. note::
-        The ``repair`` parameter is intentionally not exposed in the public
-        API documentation. Verification should never repair. The parameter
-        exists only for internal consistency testing and is always ``False``
-        when called from public code paths.
+        DigestMissingError: If ``content_digest`` is ``None``.
+        DigestMismatchError: If stored != recomputed.
     """
     if repair:
         raise ValueError("repair is not supported; verification never repairs")
@@ -139,4 +148,5 @@ __all__ = [
     "compute_content_digest",
     "seal_artifact",
     "verify_content_digest",
+    "get_digest_input_bytes",
 ]

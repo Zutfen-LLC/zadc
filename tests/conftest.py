@@ -1,6 +1,4 @@
-"""Shared test fixtures for ZADC A1 behavioral proofs and unit tests."""
-
-from __future__ import annotations
+"""Shared test fixtures for ZADC A1/FIX1 behavioral proofs."""
 
 from datetime import UTC, datetime
 
@@ -43,7 +41,7 @@ def sample_policy() -> PolicyReference:
 @pytest.fixture
 def sample_provenance_empty() -> Provenance:
     """A Provenance with no parents and no digest (unsealed)."""
-    return Provenance(parent_artifact_ids=[])
+    return Provenance(parent_artifact_ids=())
 
 
 @pytest.fixture

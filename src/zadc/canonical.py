@@ -3,6 +3,10 @@
 This module defines and implements the deterministic canonical JSON
 serialization profile used for content digest computation.
 
+FIX1-C correction: ``canonical_json_bytes`` and ``canonical_json_text``
+now accept Pydantic ``BaseModel`` instances directly, converting them
+through a single fixed dump profile before applying canonical rules.
+
 Profile rules (ZADC Canonical JSON v0.1):
 
 1. **Encoding**: UTF-8 bytes, no BOM, no trailing newline.
@@ -13,35 +17,56 @@ Profile rules (ZADC Canonical JSON v0.1):
    ``bool``, ``str``, ``int``, ``list``, and string-keyed ``dict`` are
    permitted.
 6. **Rejected types**: ``float`` (including ``-0.0``, ``NaN``, ``Infinity``),
-   ``Decimal``, ``bytes``, ``set``, ``frozenset``, non-string keys,
-   and arbitrary objects.
+   ``Decimal``, ``bytes``, ``set``, ``frozenset``, ``tuple``,
+   non-string keys, and arbitrary objects.
 7. **Datetime normalization**: All timezone-aware datetimes are normalized
    to UTC and serialized as RFC 3339 strings with uppercase ``Z``.
 8. **Determinism**: Output is idempotent and independent of insertion order
    and ``PYTHONHASHSEED``.
-
-The no-float rule is intentional cross-language digest hardening for v0.1.
-Floating-point representations vary across languages, platforms, and
-library versions, making them unsuitable for deterministic digest
-computation. Integer quantities and string-encoded values should be used
-instead. This rule may be revisited in a future contract version if a
-deterministic float encoding profile is adopted.
+9. **Pydantic models**: Accepted directly and converted via a fixed dump
+   profile: ``mode="json"``, ``by_alias=True``, ``exclude_none=False``,
+   ``exclude_defaults=False``, ``exclude_unset=False``.
 """
-
-from __future__ import annotations
 
 import json
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any, Never
 from uuid import UUID
 
-# ---------------------------------------------------------------------------
-# Type checking for canonical JSON compatibility
-# ---------------------------------------------------------------------------
+from pydantic import BaseModel
 
 
 class CanonicalJSONTypeError(TypeError):
     """Raised when a value contains a type not permitted in canonical JSON."""
+
+
+# ---------------------------------------------------------------------------
+# Pydantic model conversion (FIX1-C)
+# ---------------------------------------------------------------------------
+
+
+def _dump_pydantic_model(value: BaseModel) -> dict[str, Any]:
+    """Convert a Pydantic BaseModel to a dict using the fixed dump profile.
+
+    The profile is: mode=json, by_alias=True, exclude_none=False,
+    exclude_defaults=False, exclude_unset=False.
+
+    This ensures construction history does not affect output: omitted
+    defaults and explicitly supplied defaults/nulls canonicalize identically.
+    """
+    return value.model_dump(
+        mode="json",
+        by_alias=True,
+        exclude_none=False,
+        exclude_defaults=False,
+        exclude_unset=False,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Type checking for canonical JSON compatibility
+# ---------------------------------------------------------------------------
 
 
 def _check_float(value: float) -> Never:
@@ -66,7 +91,7 @@ def _normalize_value(value: Any) -> Any:
     # Fast path for the most common JSON-native types.
     if value is None:
         return None
-    if value is True or value is False:  # Must check before int (bool is subclass)
+    if value is True or value is False:
         return value
     if isinstance(value, str):
         return value
@@ -74,8 +99,6 @@ def _normalize_value(value: Any) -> Any:
         return value
     if isinstance(value, float):
         _check_float(value)
-
-    from decimal import Decimal
 
     if isinstance(value, Decimal):
         raise CanonicalJSONTypeError(
@@ -102,7 +125,6 @@ def _normalize_value(value: Any) -> Any:
         return _normalize_datetime(value)
 
     if isinstance(value, date):
-        # date (not datetime) — reject to avoid ambiguity
         raise CanonicalJSONTypeError(
             "bare date objects are not permitted in canonical JSON v0.1; "
             "pass a timezone-aware datetime instead"
@@ -151,7 +173,6 @@ def _normalize_datetime(value: datetime) -> str:
             "provide a timezone-aware datetime"
         )
     utc_dt = value.astimezone(UTC)
-    # Replace +00:00 suffix with Z for canonical RFC 3339 output.
     return utc_dt.isoformat().replace("+00:00", "Z")
 
 
@@ -161,17 +182,7 @@ def _normalize_datetime(value: datetime) -> str:
 
 
 def _canonical_json_str(value: Any) -> str:
-    """Produce the canonical JSON string for a pre-normalized value.
-
-    The input MUST already be normalized (only None, bool, str, int, list,
-    dict with string keys). This function handles recursive key sorting
-    and compact serialization.
-
-    Implementation detail: We use ``json.dumps`` with ``sort_keys=True``
-    for dicts and ``separators=(",", ":")`` for compact output. The
-    recursive sort ensures deterministic output independent of insertion
-    order.
-    """
+    """Produce the canonical JSON string for a pre-normalized value."""
     return json.dumps(
         value,
         ensure_ascii=False,
@@ -184,13 +195,14 @@ def _canonical_json_str(value: Any) -> str:
 def canonical_json_text(value: Any) -> str:
     """Serialize ``value`` to canonical JSON text (ZADC Canonical JSON v0.1).
 
-    The input is first normalized (type-checked and datetime-converted),
-    then serialized with recursively sorted keys and compact separators.
+    If ``value`` is a Pydantic ``BaseModel`` instance, it is first converted
+    via the fixed dump profile (``mode="json"``, ``by_alias=True``,
+    ``exclude_none=False``, etc.) before canonical serialization.
 
     Args:
-        value: A value to serialize. Must be composed of ``None``, ``bool``,
-            ``str``, ``int``, ``list``, string-keyed ``dict``, and
-            timezone-aware ``datetime`` after any model conversion.
+        value: A Pydantic ``BaseModel``, or a value composed of ``None``,
+            ``bool``, ``str``, ``int``, ``list``, string-keyed ``dict``,
+            and timezone-aware ``datetime``.
 
     Returns:
         Canonical JSON text string (no trailing newline).
@@ -200,7 +212,8 @@ def canonical_json_text(value: Any) -> str:
             bytes, sets, tuples, non-string keys, or arbitrary objects.
         ValueError: If a timezone-naive datetime is encountered.
     """
-    normalized = _normalize_value(value)
+    normalized = _dump_pydantic_model(value) if isinstance(value, BaseModel) else value
+    normalized = _normalize_value(normalized)
     return _canonical_json_str(normalized)
 
 
@@ -222,8 +235,6 @@ def canonical_json_bytes(value: Any) -> bytes:
     """
     return canonical_json_text(value).encode("utf-8")
 
-
-# Import here to avoid module-level circular import issues.
 
 __all__ = [
     "canonical_json_bytes",

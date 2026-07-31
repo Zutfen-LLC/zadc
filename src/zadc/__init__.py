@@ -8,6 +8,8 @@ Public API:
     Types:
         ActorType       — Literal union of valid actor types.
         ArtifactType    — Literal union of valid artifact types.
+        GlobalId        — URI-shaped global identifier (annotated str).
+        SliceId         — Human-friendly slice identifier (annotated str).
         Sha256Digest    — Annotated str validated as sha256:<64hex>.
         GitSha          — Annotated str validated as 40 lowercase hex.
 
@@ -31,8 +33,6 @@ Public API:
         DigestMismatchError — Stored digest does not match recomputed digest.
 """
 
-from __future__ import annotations
-
 from importlib.metadata import PackageNotFoundError, version
 
 from zadc.canonical import CanonicalJSONTypeError, canonical_json_bytes, canonical_json_text
@@ -50,16 +50,14 @@ from zadc.types import (
     ActorType,
     ArtifactType,
     GitSha,
+    GlobalId,
     Sha256Digest,
+    SliceId,
 )
 
 
 def get_version() -> str:
-    """Return the installed package version via importlib.metadata.
-
-    This is the single runtime version source. No hard-coded ``__version__``
-    constant is duplicated.
-    """
+    """Return the installed package version via importlib.metadata."""
     try:
         return version("zutfen-zadc")
     except PackageNotFoundError:  # pragma: no cover
@@ -75,6 +73,8 @@ __all__ = [
     # Types
     "ActorType",
     "ArtifactType",
+    "GlobalId",
+    "SliceId",
     "Sha256Digest",
     "GitSha",
     # Models

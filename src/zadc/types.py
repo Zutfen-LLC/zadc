@@ -1,23 +1,30 @@
 """Constrained shared types for ZADC canonical artifacts.
 
-All public types in this module are strict, immutable, and extra=forbid
-where applicable. They enforce the identifier and digest constraints
-defined in ZADC architecture sections 9 and 10.
+This module defines two distinct identifier classes:
+
+- ``GlobalId``: URI-shaped identifiers for artifact, project, actor, run,
+  and policy references. Must have a syntactically valid URI scheme
+  (e.g. ``urn:uuid:``, ``zutfen:``, ``github:``).
+- ``SliceId``: Human-friendly bounded identifiers for slice and
+  slice-instance references. Rejects Unicode category C characters
+  (controls, surrogates, format), whitespace injection, and blank values.
+
+All public types enforce strict input validation at construction.
 """
 
 import re
+import unicodedata
 from typing import Annotated, Literal
+from urllib.parse import urlparse
 
-from pydantic import AfterValidator
+from pydantic import AfterValidator, StringConstraints
 
 # ---------------------------------------------------------------------------
 # Contract-level constants (architecture section 10)
 # ---------------------------------------------------------------------------
 
-#: The ZADC contract version for this implementation.
 CONTRACT_VERSION: str = "0.1.0"
 
-#: The canonical schema identifier embedded in every artifact envelope.
 SCHEMA_ID: str = "https://schemas.zutfen.com/zadc/0.1/artifact.schema.json"
 
 # ---------------------------------------------------------------------------
@@ -46,59 +53,136 @@ ArtifactType = Literal[
 ]
 
 # ---------------------------------------------------------------------------
-# Identifier validation
+# Global identifier validation (FIX1-D)
 # ---------------------------------------------------------------------------
 
-# Reject ASCII control characters (C0 and DEL) in identifiers.
-_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+#: Pattern for a valid URI scheme component per RFC 3986.
+_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*$")
 
 
-def validate_stable_id(value: str) -> str:
-    """Validate a stable identifier string.
+def _reject_unicode_category_c(value: str) -> None:
+    """Reject all Unicode category C characters (controls, surrogates, format).
 
-    A stable ID MUST:
-    - be non-empty after stripping surrounding whitespace;
-    - contain no ASCII control characters;
-    - be URI-shaped (supporting urn:uuid, zutfen:, github:, and similar
-      scheme-prefixed identifiers or bare slug identifiers).
+    This covers Cc (control), Cf (format), Cs (surrogate), Co (private use),
+    and Cn (unassigned). These are collectively unsafe in identifiers.
+    """
+    for ch in value:
+        cat = unicodedata.category(ch)
+        if cat.startswith("C"):
+            raise ValueError(
+                f"identifier contains Unicode category {cat} character: U+{ord(ch):04X}"
+            )
 
-    The validation does NOT enforce a specific scheme so that the type
-    remains forward-compatible with future identifier schemes.
+
+def validate_global_id(value: str) -> str:
+    """Validate a URI-shaped global identifier.
+
+    A global ID MUST:
+    - be a non-empty string;
+    - contain no Unicode category C characters;
+    - have a syntactically valid URI scheme (e.g. ``urn:uuid:``, ``zutfen:``,
+      ``github:``);
+    - if the scheme is ``urn:uuid:``, parse as a valid UUID URN in canonical
+      lowercase form.
+
+    This validator does NOT make network calls.
     """
     if not isinstance(value, str):
-        raise TypeError("stable identifier must be a string")
-    stripped = value.strip()
-    if not stripped:
-        raise ValueError("stable identifier must not be empty or whitespace-only")
-    if stripped != value:
-        raise ValueError("stable identifier must not have leading/trailing whitespace")
-    if _CONTROL_RE.search(value):
-        raise ValueError("stable identifier must not contain control characters")
+        raise TypeError("global identifier must be a string")
+    if not value:
+        raise ValueError("global identifier must not be empty")
+    if value.strip() != value:
+        raise ValueError("global identifier must not have leading/trailing whitespace")
+    _reject_unicode_category_c(value)
+
+    parsed = urlparse(value)
+    scheme = parsed.scheme
+    if not scheme or not _SCHEME_RE.match(scheme):
+        raise ValueError(f"global identifier must have a valid URI scheme: {value!r}")
+
+    # For urn:uuid: identifiers, validate canonical lowercase form.
+    if scheme == "urn" and value.lower().startswith("urn:uuid:"):
+        uuid_part = value[len("urn:uuid:") :]
+        uuid_lower = uuid_part.lower()
+        if uuid_lower != uuid_part:
+            raise ValueError(f"urn:uuid identifiers must use lowercase hex: {value!r}")
+        # Validate it parses as a real UUID.
+        from uuid import UUID
+
+        try:
+            UUID(uuid_part)
+        except ValueError as exc:
+            raise ValueError(f"invalid urn:uuid value: {value!r}") from exc
+
     return value
 
 
-#: Pydantic AfterValidator alias for stable IDs.
-StableIdValidator = AfterValidator(validate_stable_id)
+#: URI pattern: scheme followed by colon. Scheme must start with a letter.
+#: Unicode control character rejection is enforced by the AfterValidator.
+_URI_PATTERN = r"^[a-zA-Z][a-zA-Z0-9+.\-]*:"
 
-#: Annotated string type for stable identifiers usable in Pydantic models.
-StableId = Annotated[str, StableIdValidator]
+GlobalId = Annotated[
+    str,
+    StringConstraints(min_length=1, pattern=_URI_PATTERN),
+    AfterValidator(validate_global_id),
+]
+
+
+# ---------------------------------------------------------------------------
+# Slice identifier validation (FIX1-D)
+# ---------------------------------------------------------------------------
+
+#: Allowed characters for slice IDs: uppercase letters, digits, and hyphens.
+_SLICE_ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9\-]*[A-Z0-9]$|^[A-Z0-9]$")
+
+
+def validate_slice_id(value: str) -> str:
+    """Validate a human-friendly slice identifier.
+
+    A slice ID MUST:
+    - be a non-empty string;
+    - contain only uppercase letters, digits, and hyphens;
+    - start and end with a letter or digit;
+    - contain no Unicode category C characters;
+    - contain no whitespace, path separators, or injection characters.
+
+    Examples of valid slice IDs: ``ZADC-001A1``, ``ENG-PORTAL-RECEIPTS-001A-FIX1``.
+    """
+    if not isinstance(value, str):
+        raise TypeError("slice identifier must be a string")
+    if not value:
+        raise ValueError("slice identifier must not be empty")
+    if value.strip() != value:
+        raise ValueError("slice identifier must not have leading/trailing whitespace")
+    _reject_unicode_category_c(value)
+    if not _SLICE_ID_RE.match(value):
+        raise ValueError(
+            f"slice identifier must match [A-Z0-9-]+ grammar (uppercase, "
+            f"digits, hyphens; start/end alphanumeric): {value!r}"
+        )
+    return value
+
+
+#: Allowed characters for slice IDs: uppercase letters, digits, and hyphens.
+_SLICE_ID_PATTERN = r"^[A-Z0-9]([A-Z0-9\-]*[A-Z0-9])?$"
+
+SliceId = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=128, pattern=_SLICE_ID_PATTERN),
+    AfterValidator(validate_slice_id),
+]
+
 
 # ---------------------------------------------------------------------------
 # Digest and SHA validation
 # ---------------------------------------------------------------------------
 
-#: Pattern for a SHA-256 digest with lowercase hex.
 _SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
-
-#: Pattern for a 40-character lowercase hex Git SHA.
 _GIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
 
 def validate_sha256_digest(value: str) -> str:
-    """Validate a SHA-256 digest string.
-
-    Must be exactly ``sha256:`` followed by 64 lowercase hex characters.
-    """
+    """Validate a SHA-256 digest string."""
     if not isinstance(value, str):
         raise TypeError("sha256 digest must be a string")
     if not _SHA256_PATTERN.match(value):
@@ -107,10 +191,7 @@ def validate_sha256_digest(value: str) -> str:
 
 
 def validate_git_sha(value: str) -> str:
-    """Validate a Git SHA string.
-
-    Must be exactly 40 lowercase hex characters.
-    """
+    """Validate a Git SHA string."""
     if not isinstance(value, str):
         raise TypeError("git sha must be a string")
     if not _GIT_SHA_PATTERN.match(value):
@@ -118,11 +199,17 @@ def validate_git_sha(value: str) -> str:
     return value
 
 
-#: Annotated string type for SHA-256 digests.
-Sha256Digest = Annotated[str, AfterValidator(validate_sha256_digest)]
+Sha256Digest = Annotated[
+    str,
+    StringConstraints(pattern=r"^sha256:[0-9a-f]{64}$"),
+    AfterValidator(validate_sha256_digest),
+]
 
-#: Annotated string type for Git SHAs.
-GitSha = Annotated[str, AfterValidator(validate_git_sha)]
+GitSha = Annotated[
+    str,
+    StringConstraints(pattern=r"^[0-9a-f]{40}$"),
+    AfterValidator(validate_git_sha),
+]
 
 
 __all__ = [
@@ -130,11 +217,12 @@ __all__ = [
     "SCHEMA_ID",
     "ActorType",
     "ArtifactType",
+    "GlobalId",
+    "SliceId",
     "Sha256Digest",
     "GitSha",
-    "StableId",
-    "StableIdValidator",
+    "validate_global_id",
+    "validate_slice_id",
     "validate_sha256_digest",
     "validate_git_sha",
-    "validate_stable_id",
 ]

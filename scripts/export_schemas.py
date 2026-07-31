@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Export the ZADC artifact-envelope JSON Schema deterministically.
 
-Generates a Draft 2020-12 JSON Schema for the common artifact envelope.
-The output file uses sorted pretty JSON with a final newline, making it
-reproducible and suitable for byte-level regression comparison.
+Generates a Draft 2020-12 JSON Schema from ``ArtifactEnvelope.model_json_schema()``
+with deterministic post-processing for stable output. The output file uses
+sorted pretty JSON with a final newline.
+
+FIX1-E: The schema is derived from the Pydantic model, not hand-written.
+Post-processing only adds $schema, $id, title, description, and reorders keys.
 
 Usage:
     python scripts/export_schemas.py [--output-dir schemas]
@@ -11,171 +14,71 @@ Usage:
 The schema is written to ``schemas/0.1/artifact-envelope.schema.json``.
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import sys
 from pathlib import Path
 
-from zadc.types import CONTRACT_VERSION, SCHEMA_ID
+# Add src to path for direct script execution
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_SRC_DIR = _REPO_ROOT / "src"
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
+from zadc.models.common import ArtifactEnvelope  # noqa: E402
+from zadc.types import SCHEMA_ID  # noqa: E402
+
+# Key-order map for deterministic top-level ordering.
+# We place these before the Pydantic-generated keys.
+_TOP_LEVEL_KEY_ORDER = [
+    "$schema",
+    "$id",
+    "title",
+    "description",
+    "type",
+    "additionalProperties",
+    "required",
+    "properties",
+]
+
+
+def _reorder_dict(data: dict[str, object], key_order: list[str]) -> dict[str, object]:
+    """Reorder dict keys with the given order first, then alphabetical."""
+    result: dict[str, object] = {}
+    for key in key_order:
+        if key in data:
+            result[key] = data[key]
+    for key in sorted(k for k in data if k not in key_order):
+        result[key] = data[key]
+    return result
 
 
 def _build_envelope_schema() -> dict[str, object]:
-    """Build the JSON Schema for ArtifactEnvelope (Draft 2020-12)."""
-    actor_types = ["human", "agent", "ci", "validator", "service"]
-    artifact_types = [
-        "packet",
-        "completion_report",
-        "certification_manifest",
-        "review_report",
-        "decision_record",
-        "workflow_bundle",
-        "evidence_artifact",
-        "observation",
-    ]
+    """Build the JSON Schema for ArtifactEnvelope from the model.
 
-    sha256_digest_pattern = r"^sha256:[0-9a-f]{64}$"
-    git_sha_pattern = r"^[0-9a-f]{40}$"
-    # Stable IDs: non-empty, no control characters, no leading/trailing whitespace.
-    stable_id_pattern = r"^[^\s]+(.*[^\s]+)?$"
+    Uses ``ArtifactEnvelope.model_json_schema(mode='validation')`` to derive
+    the schema, then applies deterministic post-processing.
+    """
+    # Generate schema from the Pydantic model.
+    raw = ArtifactEnvelope.model_json_schema(mode="validation")
 
-    # Datetime RFC 3339 pattern with optional fractional seconds and uppercase Z.
-    # This pattern matches the canonical serialization output.
-    datetime_pattern = (
-        r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
-        r"[0-9]{2}:[0-9]{2}:[0-9]{2}"
-        r"(\.[0-9]+)?"
-        r"(Z|[+-][0-9]{2}:[0-9]{2})$"
+    # Post-process: add schema metadata, flatten $defs, and reorder.
+    schema: dict[str, object] = dict(raw)
+
+    # Add stable metadata.
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["$id"] = SCHEMA_ID
+    schema["title"] = "ZADC Artifact Envelope"
+    schema["description"] = (
+        "Common artifact envelope for the Zutfen Agentic Development "
+        "Contract v0.1. Every ZADC artifact MUST include this envelope."
     )
 
-    schema: dict[str, object] = {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": SCHEMA_ID,
-        "title": "ZADC Artifact Envelope",
-        "description": (
-            "Common artifact envelope for the Zutfen Agentic Development "
-            "Contract v0.1. Every ZADC artifact MUST include this envelope."
-        ),
-        "type": "object",
-        "additionalProperties": False,
-        "required": [
-            "schema",
-            "contract_version",
-            "artifact_type",
-            "artifact_id",
-            "created_at",
-            "producer",
-            "project_id",
-            "slice_id",
-            "slice_instance_id",
-            "policy",
-            "provenance",
-        ],
-        "properties": {
-            "schema": {
-                "type": "string",
-                "const": SCHEMA_ID,
-            },
-            "contract_version": {
-                "type": "string",
-                "const": CONTRACT_VERSION,
-            },
-            "artifact_type": {
-                "type": "string",
-                "enum": artifact_types,
-            },
-            "artifact_id": {
-                "type": "string",
-                "pattern": stable_id_pattern,
-                "minLength": 1,
-            },
-            "created_at": {
-                "type": "string",
-                "pattern": datetime_pattern,
-            },
-            "producer": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["actor_type", "actor_id"],
-                "properties": {
-                    "actor_type": {
-                        "type": "string",
-                        "enum": actor_types,
-                    },
-                    "actor_id": {
-                        "type": "string",
-                        "pattern": stable_id_pattern,
-                        "minLength": 1,
-                    },
-                    "run_id": {
-                        "type": ["string", "null"],
-                        "pattern": stable_id_pattern,
-                    },
-                    "model": {
-                        "type": ["string", "null"],
-                    },
-                    "provider": {
-                        "type": ["string", "null"],
-                    },
-                },
-            },
-            "project_id": {
-                "type": "string",
-                "pattern": stable_id_pattern,
-                "minLength": 1,
-            },
-            "slice_id": {
-                "type": "string",
-                "pattern": stable_id_pattern,
-                "minLength": 1,
-            },
-            "slice_instance_id": {
-                "type": "string",
-                "pattern": stable_id_pattern,
-                "minLength": 1,
-            },
-            "policy": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["policy_id", "policy_source_sha", "policy_digest"],
-                "properties": {
-                    "policy_id": {
-                        "type": "string",
-                        "pattern": stable_id_pattern,
-                        "minLength": 1,
-                    },
-                    "policy_source_sha": {
-                        "type": "string",
-                        "pattern": git_sha_pattern,
-                    },
-                    "policy_digest": {
-                        "type": "string",
-                        "pattern": sha256_digest_pattern,
-                    },
-                },
-            },
-            "provenance": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["parent_artifact_ids"],
-                "properties": {
-                    "parent_artifact_ids": {
-                        "type": "array",
-                        "items": {
-                            "type": "string",
-                            "pattern": stable_id_pattern,
-                            "minLength": 1,
-                        },
-                    },
-                    "content_digest": {
-                        "type": ["string", "null"],
-                        "pattern": sha256_digest_pattern,
-                    },
-                },
-            },
-        },
-    }
+    # Ensure additionalProperties is false at the top level.
+    schema["additionalProperties"] = False
+
+    # Apply deterministic key ordering at the top level.
+    schema = _reorder_dict(schema, _TOP_LEVEL_KEY_ORDER)
 
     return schema
 
@@ -202,8 +105,7 @@ def export_schema(output_dir: Path | None = None) -> Path:
         The path to the written schema file.
     """
     if output_dir is None:
-        repo_root = Path(__file__).resolve().parent.parent
-        output_dir = repo_root / "schemas"
+        output_dir = _REPO_ROOT / "schemas"
 
     target_dir = output_dir / "0.1"
     target_dir.mkdir(parents=True, exist_ok=True)
