@@ -3,8 +3,8 @@
 #
 # Downloads the exact v1.7.12 GitHub release asset selected by a committed
 # platform manifest, verifies its SHA-256 against a committed trusted digest,
-# extracts the binary, and verifies it reports the exact expected release
-# version before declaring success.
+# extracts the binary to a temporary staging area, validates the candidate's
+# exact version, and then atomically installs it.
 #
 # Supported host tuples (uname -s / uname -m):
 #   linux/x86_64  linux/aarch64  darwin/x86_64  darwin/arm64
@@ -13,21 +13,29 @@
 # mapping, download failure, checksum mismatch, extraction failure, missing
 # required utilities, or version mismatch.
 #
+# Atomic install: the candidate is validated in staging before the final
+# path is touched.  On failure, any previously trusted binary remains
+# unchanged and no staging remnants are left in the install directory.
+#
 # Usage:
 #   scripts/install_actionlint.sh [install-dir]
 #   scripts/install_actionlint.sh --print-selection   (test/diagnostic: no download)
 #
-# Test-only environment overrides (rejected when CI=true unless
-# ACTIONLINT_TEST_HARNESS=1 is also set):
+# Test-only environment overrides (accepted ONLY when ACTIONLINT_TEST_HARNESS
+# is set to the exact string "1"):
 #   ACTIONLINT_TEST_OS     — override OS detection (e.g. "Linux", "Darwin")
 #   ACTIONLINT_TEST_ARCH   — override arch detection (e.g. "x86_64", "aarch64")
 #   ACTIONLINT_TEST_URL    — override download URL (e.g. file:// fixture)
 #   ACTIONLINT_TEST_SHA256 — override expected SHA-256 digest
+#   ACTIONLINT_TEST_CURL   — override curl binary path (test shim)
 #
-# These overrides NEVER weaken checksum or version verification — both checks
-# always execute regardless of overrides.  They only change what is downloaded
-# and what digest is expected, so that negative-path tests can prove each
-# verification layer independently.
+# Any override variable set without ACTIONLINT_TEST_HARNESS=1 causes immediate
+# failure before platform selection, download, extraction, or execution.
+# ACTIONLINT_TEST_HARNESS values other than the exact string "1" do not
+# authorize overrides.
+#
+# These overrides NEVER weaken checksum or exact-version verification — both
+# checks always execute regardless of overrides.
 #
 # All progress messages go to stderr; only the install directory path goes to
 # stdout (for $() capture and GITHUB_PATH appending).
@@ -40,20 +48,52 @@ RELEASE_BASE="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLIN
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# ---------------------------------------------------------------------------
-# Test-seam guard: overrides are rejected in CI/production unless the test
-# harness explicitly enables them.
-# ---------------------------------------------------------------------------
-_test_overrides_allowed() {
-    if [ "${CI:-}" = "true" ] && [ "${ACTIONLINT_TEST_HARNESS:-}" != "1" ]; then
-        return 1
-    fi
-    return 0
+# -----------------------------------------------------------------------
+# FIX3-A: Test-seam gate — overrides require ACTIONLINT_TEST_HARNESS=1
+# exactly.  The gate is environment-independent: CI=true is not the
+# deciding factor.  Any override variable present without the exact
+# harness value causes immediate failure.
+# -----------------------------------------------------------------------
+
+# List of all test override variables that require the harness.
+_TEST_OVERRIDE_VARS=(
+    ACTIONLINT_TEST_OS
+    ACTIONLINT_TEST_ARCH
+    ACTIONLINT_TEST_URL
+    ACTIONLINT_TEST_SHA256
+    ACTIONLINT_TEST_CURL
+)
+
+# Returns 0 (true) if ACTIONLINT_TEST_HARNESS is exactly "1".
+_harness_active() {
+    [ "${ACTIONLINT_TEST_HARNESS:-}" = "1" ]
 }
 
-# ---------------------------------------------------------------------------
+# Check for stray override variables before anything else.  This runs
+# immediately and unconditionally — before platform selection, download,
+# extraction, or execution — so no override can ever be silently honored.
+for _var in "${_TEST_OVERRIDE_VARS[@]}"; do
+    # Using indirect expansion to check if the variable is set and non-empty.
+    eval "_val=\"\${${_var}:-}\""
+    if [ -n "$_val" ]; then
+        if ! _harness_active; then
+            echo "FAIL: ${_var} is set but ACTIONLINT_TEST_HARNESS is not exactly '1'." >&2
+            echo "  Test overrides require ACTIONLINT_TEST_HARNESS=1." >&2
+            echo "  Unset ${_var} or set ACTIONLINT_TEST_HARNESS=1 explicitly." >&2
+            exit 1
+        fi
+    fi
+done
+
+# _test_overrides_allowed() is only reached after the stray-variable gate
+# above has passed.  It confirms the harness is active.
+_test_overrides_allowed() {
+    _harness_active
+}
+
+# -----------------------------------------------------------------------
 # Platform detection
-# ---------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 detect_os() {
     if _test_overrides_allowed && [ -n "${ACTIONLINT_TEST_OS:-}" ]; then
         echo "$ACTIONLINT_TEST_OS"
@@ -70,9 +110,9 @@ detect_arch() {
     fi
 }
 
-# ---------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 # Normalize common uname aliases to canonical actionlint identifiers
-# ---------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 normalize_os() {
     local raw="$1"
     case "$raw" in
@@ -91,13 +131,13 @@ normalize_arch() {
     esac
 }
 
-# ---------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 # Platform manifest: sets ASSET_FILENAME and EXPECTED_SHA256 for the given
 # normalized "os arch" pair.
 #
 # SHA-256 values sourced from the official v1.7.12 release checksums file:
 #   https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_checksums.txt
-# ---------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 ASSET_FILENAME=""
 EXPECTED_SHA256=""
 
@@ -131,9 +171,9 @@ select_platform() {
     esac
 }
 
-# ---------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 # Checksum helper (works on Linux with sha256sum and macOS with shasum)
-# ---------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 compute_sha256() {
     local file="$1"
     if command -v sha256sum >/dev/null 2>&1; then
@@ -146,10 +186,47 @@ compute_sha256() {
     fi
 }
 
-# ---------------------------------------------------------------------------
+# -----------------------------------------------------------------------
+# FIX3-B: Exact version parser
+#
+# Parses actionlint -version output. The real actionlint outputs:
+#   1.7.12
+#   https://github.com/rhysd/actionlint
+#   ...
+#
+# We extract the first whitespace-stripped line and require it to be
+# EXACTLY the expected version string.  No substring matching.
+# -----------------------------------------------------------------------
+parse_and_verify_version() {
+    local candidate_bin="$1"
+    local expected="$2"
+
+    local version_output
+    # Capture stdout+stderr, but treat command failure as rejection
+    if ! version_output="$("$candidate_bin" -version 2>&1)"; then
+        echo "FAIL: actionlint -version command failed" >&2
+        echo "  output: ${version_output}" >&2
+        return 1
+    fi
+
+    # Extract the first non-empty line, trimmed of surrounding whitespace
+    local first_line
+    first_line="$(echo "$version_output" | sed '/^[[:space:]]*$/d' | head -1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+    if [ "$first_line" != "$expected" ]; then
+        echo "FAIL: actionlint version mismatch" >&2
+        echo "  expected (exact): ${expected}" >&2
+        echo "  parsed version:   ${first_line}" >&2
+        echo "  raw output:       ${version_output}" >&2
+        return 1
+    fi
+    return 0
+}
+
+# -----------------------------------------------------------------------
 # --print-selection: output "asset_filename sha256" for the detected platform
-# without downloading. Used by behavioral tests (BT-01, BT-02).
-# ---------------------------------------------------------------------------
+# without downloading. Used by behavioral tests.
+# -----------------------------------------------------------------------
 if [ "${1:-}" = "--print-selection" ]; then
     RAW_OS="$(detect_os)"
     RAW_ARCH="$(detect_arch)"
@@ -165,14 +242,21 @@ fi
 # ===========================================================================
 
 INSTALL_DIR="${1:-$REPO_ROOT/.tools/bin}"
+FINAL_BIN="${INSTALL_DIR}/actionlint"
 
 # --- Verify required utilities ---
-for util in curl tar; do
-    if ! command -v "$util" >/dev/null 2>&1; then
-        echo "FAIL: Required utility '$util' not found on PATH" >&2
-        exit 1
-    fi
-done
+CURL_BIN="curl"
+if _test_overrides_allowed && [ -n "${ACTIONLINT_TEST_CURL:-}" ]; then
+    CURL_BIN="$ACTIONLINT_TEST_CURL"
+fi
+if ! command -v "$CURL_BIN" >/dev/null 2>&1; then
+    echo "FAIL: Required utility '$CURL_BIN' not found on PATH" >&2
+    exit 1
+fi
+if ! command -v tar >/dev/null 2>&1; then
+    echo "FAIL: Required utility 'tar' not found on PATH" >&2
+    exit 1
+fi
 if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
     echo "FAIL: Required checksum utility (sha256sum or shasum) not found on PATH" >&2
     exit 1
@@ -191,7 +275,7 @@ select_platform "$OS" "$ARCH" || exit 1
 echo "[install_actionlint] Selected asset: ${ASSET_FILENAME}" >&2
 echo "[install_actionlint] Expected SHA-256: ${EXPECTED_SHA256}" >&2
 
-# --- Apply test-only overrides (never in production CI) ---
+# --- Determine download URL (test override only with harness) ---
 DOWNLOAD_URL="${RELEASE_BASE}/${ASSET_FILENAME}"
 if _test_overrides_allowed && [ -n "${ACTIONLINT_TEST_URL:-}" ]; then
     DOWNLOAD_URL="$ACTIONLINT_TEST_URL"
@@ -209,7 +293,7 @@ trap 'rm -rf "$TMPDIR"' EXIT
 # --- Download ---
 echo "[install_actionlint] Downloading from ${DOWNLOAD_URL}..." >&2
 TARBALL_PATH="${TMPDIR}/${ASSET_FILENAME}"
-if ! curl -fsSL -o "$TARBALL_PATH" "$DOWNLOAD_URL"; then
+if ! "$CURL_BIN" -fsSL -o "$TARBALL_PATH" "$DOWNLOAD_URL"; then
     echo "FAIL: Could not download actionlint from ${DOWNLOAD_URL}" >&2
     exit 1
 fi
@@ -225,27 +309,42 @@ if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
 fi
 echo "[install_actionlint] SHA-256 verified: $ACTUAL_SHA256" >&2
 
-# --- Extract ---
-mkdir -p "$INSTALL_DIR"
+# --- Extract candidate to staging (NOT to INSTALL_DIR) ---
 if ! tar -xzf "$TARBALL_PATH" -C "$TMPDIR" actionlint; then
     echo "FAIL: Could not extract actionlint binary from tarball" >&2
     exit 1
 fi
 
-cp "$TMPDIR/actionlint" "$INSTALL_DIR/actionlint"
-chmod +x "$INSTALL_DIR/actionlint"
+CANDIDATE_BIN="${TMPDIR}/actionlint"
+chmod +x "$CANDIDATE_BIN"
 
-# --- Verify exact release version (defense in depth — before use) ---
-echo "[install_actionlint] Verifying actionlint version..." >&2
-VERSION_OUTPUT="$("$INSTALL_DIR/actionlint" -version 2>&1 || true)"
-if ! echo "$VERSION_OUTPUT" | grep -qF "${ACTIONLINT_VERSION}"; then
-    echo "FAIL: actionlint version mismatch" >&2
-    echo "  expected: ${ACTIONLINT_VERSION}" >&2
-    echo "  actual:   ${VERSION_OUTPUT}" >&2
+# --- FIX3-B: Validate candidate exact version BEFORE touching INSTALL_DIR ---
+echo "[install_actionlint] Verifying actionlint exact version..." >&2
+if ! parse_and_verify_version "$CANDIDATE_BIN" "$ACTIONLINT_VERSION"; then
     exit 1
 fi
-echo "[install_actionlint] Version verified: ${ACTIONLINT_VERSION}" >&2
+echo "[install_actionlint] Version verified (exact match): ${ACTIONLINT_VERSION}" >&2
 
-echo "[install_actionlint] Installed actionlint to ${INSTALL_DIR}/actionlint" >&2
+# --- FIX3-B: Atomic install ---
+# Copy candidate to a temp file inside the destination filesystem, set
+# executable permissions, then rename into the final path.  On failure,
+# any previously trusted binary remains unchanged.
+mkdir -p "$INSTALL_DIR"
+
+ATOMIC_TMP="${INSTALL_DIR}/.actionlint.tmp.$$"
+if ! cp "$CANDIDATE_BIN" "$ATOMIC_TMP"; then
+    echo "FAIL: Could not stage candidate for atomic install" >&2
+    rm -f "$ATOMIC_TMP"
+    exit 1
+fi
+chmod +x "$ATOMIC_TMP"
+
+if ! mv -f "$ATOMIC_TMP" "$FINAL_BIN"; then
+    echo "FAIL: Could not atomically install actionlint" >&2
+    rm -f "$ATOMIC_TMP"
+    exit 1
+fi
+
+echo "[install_actionlint] Installed actionlint to ${FINAL_BIN}" >&2
 # Only stdout line: the install directory path
 echo "$INSTALL_DIR"

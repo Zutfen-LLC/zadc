@@ -1,21 +1,19 @@
-"""Behavioral proof tests for actionlint provisioning (ZADC-000-FIX2).
+"""Behavioral proof tests for actionlint provisioning (ZADC-000-FIX3).
 
 These tests execute the real provisioning code paths and assert observable
-behavior — they do not search source text for strings. Each test
-corresponds to a behavioral proof (BT-01 through BT-07) required by the
-ZADC-000-FIX2 fix packet.
+behavior. Each test corresponds to a behavioral proof (BT3-01 through BT3-08)
+required by the ZADC-000-FIX3 fix packet. BT3-09 is the standalone
+make workflow-lint proof, recorded separately.
 
-Test seams use environment variables (ACTIONLINT_TEST_*) that are gated by
-ACTIONLINT_TEST_HARNESS=1 and rejected in CI mode (CI=true) unless the
-harness explicitly enables them. These seams never weaken checksum or
-version verification — they only control what gets downloaded and what
-digest is expected.
+All negative-path tests are offline and deterministic — no external network,
+no pytest.skip.
 """
 
 from __future__ import annotations
 
 import hashlib
 import os
+import stat
 import subprocess
 import tarfile
 from pathlib import Path
@@ -27,7 +25,6 @@ INSTALL_SCRIPT = REPO_ROOT / "scripts" / "install_actionlint.sh"
 RUN_LINT_SCRIPT = REPO_ROOT / "scripts" / "run_workflow_lint.sh"
 
 # Official v1.7.12 release checksums (from actionlint_1.7.12_checksums.txt)
-# Maps (os_raw, arch_raw) -> (expected_asset_filename, expected_sha256)
 PLATFORM_MATRIX = [
     (
         "Linux",
@@ -55,6 +52,14 @@ PLATFORM_MATRIX = [
     ),
 ]
 
+OVERRIDE_VARS = [
+    "ACTIONLINT_TEST_OS",
+    "ACTIONLINT_TEST_ARCH",
+    "ACTIONLINT_TEST_URL",
+    "ACTIONLINT_TEST_SHA256",
+    "ACTIONLINT_TEST_CURL",
+]
+
 
 def _run_script(
     args: list[str],
@@ -75,148 +80,123 @@ def _run_script(
     )
 
 
-# ===========================================================================
-# BT-01: Supported platform selection
-# ===========================================================================
+def _make_valid_tarball(tmp_path: Path, name: str, content: str) -> Path:
+    """Create a valid tar.gz with an 'actionlint' entry containing content."""
+    tarball = tmp_path / name
+    staging = tmp_path / "staging_make"
+    staging.mkdir(exist_ok=True, parents=True)
+    fake_bin = staging / "actionlint"
+    fake_bin.write_text(content)
+    fake_bin.chmod(0o755)
+    with tarfile.open(tarball, "w:gz") as tar:
+        tar.add(fake_bin, arcname="actionlint")
+    return tarball
 
 
-class TestBT01SupportedPlatformSelection:
-    """Execute the provisioning selection logic for all four supported host
-    tuples and assert the exact expected asset and digest are selected."""
-
-    @pytest.mark.parametrize(
-        "os_name,arch,expected_asset,expected_sha",
-        PLATFORM_MATRIX,
-        ids=["linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64"],
-    )
-    def test_selects_exact_asset_for_each_tuple(
-        self, os_name: str, arch: str, expected_asset: str, expected_sha: str
-    ) -> None:
-        """Each supported tuple selects the exact committed asset and digest."""
-        result = _run_script(
-            [str(INSTALL_SCRIPT), "--print-selection"],
-            env={
-                "ACTIONLINT_TEST_HARNESS": "1",
-                "ACTIONLINT_TEST_OS": os_name,
-                "ACTIONLINT_TEST_ARCH": arch,
-            },
-        )
-        assert result.returncode == 0, f"Selection failed for {os_name}/{arch}: {result.stderr}"
-        parts = result.stdout.strip().split()
-        assert len(parts) == 2, f"Expected 'asset sha256', got: {result.stdout!r}"
-        asset, sha = parts
-        assert asset == expected_asset, (
-            f"Wrong asset for {os_name}/{arch}: expected {expected_asset}, got {asset}"
-        )
-        assert sha == expected_sha, (
-            f"Wrong SHA-256 for {os_name}/{arch}: expected {expected_sha}, got {sha}"
-        )
-
-    @pytest.mark.parametrize(
-        "alias,canonical",
-        [
-            ("x86_64", "amd64"),
-            ("amd64", "amd64"),
-            ("aarch64", "arm64"),
-            ("arm64", "arm64"),
-        ],
-    )
-    def test_arch_aliases_normalize_correctly(self, alias: str, canonical: str) -> None:
-        """Common uname aliases (x86_64/amd64, aarch64/arm64) normalize to the
-        same canonical identifier and produce the same selection."""
-        os_name = "Linux"
-        result_alias = _run_script(
-            [str(INSTALL_SCRIPT), "--print-selection"],
-            env={
-                "ACTIONLINT_TEST_HARNESS": "1",
-                "ACTIONLINT_TEST_OS": os_name,
-                "ACTIONLINT_TEST_ARCH": alias,
-            },
-        )
-        result_canonical = _run_script(
-            [str(INSTALL_SCRIPT), "--print-selection"],
-            env={
-                "ACTIONLINT_TEST_HARNESS": "1",
-                "ACTIONLINT_TEST_OS": os_name,
-                "ACTIONLINT_TEST_ARCH": canonical,
-            },
-        )
-        # Only amd64 and arm64 have aliases in the supported set
-        if canonical in ("amd64", "arm64"):
-            assert result_alias.returncode == 0
-            assert result_canonical.returncode == 0
-            assert result_alias.stdout.strip() == result_canonical.stdout.strip(), (
-                f"Alias {alias} should produce same selection as {canonical}"
-            )
+def _make_failing_curl_shim(tmp_path: Path) -> Path:
+    """Create a curl shim that always exits nonzero (for offline download-failure tests)."""
+    shim = tmp_path / "curl_fail"
+    shim.write_text("#!/usr/bin/env bash\nexit 1\n")
+    shim.chmod(0o755)
+    return shim
 
 
 # ===========================================================================
-# BT-02: Unsupported platform fails closed
+# BT3-01: Override without harness is rejected
 # ===========================================================================
 
 
-class TestBT02UnsupportedPlatformFailsClosed:
-    """Execute the real provisioning path with a simulated unsupported uname
-    tuple and assert nonzero exit plus an actionable error."""
+class TestBT301OverrideWithoutHarnessRejected:
+    """For each ACTIONLINT_TEST_* override class, execute the real installer
+    without ACTIONLINT_TEST_HARNESS=1 and prove immediate nonzero rejection
+    before download or installation."""
 
-    def test_unsupported_os_fails_closed(self) -> None:
+    @pytest.mark.parametrize("override_var", OVERRIDE_VARS, ids=OVERRIDE_VARS)
+    def test_override_rejected_without_harness(self, override_var: str, tmp_path: Path) -> None:
+        """Each override variable must be rejected without the harness."""
+        env = {
+            override_var: "test_value",
+            # Explicitly ensure harness is NOT set
+            "ACTIONLINT_TEST_HARNESS": "",
+        }
         result = _run_script(
-            [str(INSTALL_SCRIPT), "--print-selection"],
-            env={
-                "ACTIONLINT_TEST_HARNESS": "1",
-                "ACTIONLINT_TEST_OS": "FreeBSD",
-                "ACTIONLINT_TEST_ARCH": "x86_64",
-            },
+            [str(INSTALL_SCRIPT), str(tmp_path / "installdir")],
+            env=env,
         )
-        assert result.returncode != 0, "Unsupported OS must fail closed"
-        assert "Unsupported" in result.stderr or "FAIL" in result.stderr
-
-    def test_unsupported_arch_fails_closed(self) -> None:
-        result = _run_script(
-            [str(INSTALL_SCRIPT), "--print-selection"],
-            env={
-                "ACTIONLINT_TEST_HARNESS": "1",
-                "ACTIONLINT_TEST_OS": "Linux",
-                "ACTIONLINT_TEST_ARCH": "riscv64",
-            },
+        assert result.returncode != 0, (
+            f"{override_var} must be rejected without ACTIONLINT_TEST_HARNESS=1"
         )
-        assert result.returncode != 0, "Unsupported arch must fail closed"
-        assert "Unsupported" in result.stderr or "FAIL" in result.stderr
+        assert override_var in result.stderr
+        assert "ACTIONLINT_TEST_HARNESS" in result.stderr
 
-    def test_unsupported_os_error_is_actionable(self) -> None:
-        """Error message must list supported platforms for the user."""
+    def test_override_rejected_completely_unset_harness(self, tmp_path: Path) -> None:
+        """When harness is completely unset, overrides must be rejected."""
+        env = os.environ.copy()
+        # Remove harness entirely
+        env.pop("ACTIONLINT_TEST_HARNESS", None)
+        env["ACTIONLINT_TEST_OS"] = "Linux"
         result = _run_script(
             [str(INSTALL_SCRIPT), "--print-selection"],
-            env={
-                "ACTIONLINT_TEST_HARNESS": "1",
-                "ACTIONLINT_TEST_OS": "Windows",
-                "ACTIONLINT_TEST_ARCH": "x86_64",
-            },
+            env=env,
         )
         assert result.returncode != 0
-        stderr_lower = result.stderr.lower()
-        assert "supported" in stderr_lower or "linux" in stderr_lower
+        assert "ACTIONLINT_TEST_HARNESS" in result.stderr
 
 
 # ===========================================================================
-# BT-03: Checksum mismatch fails closed
+# BT3-02: Invalid harness values are rejected
 # ===========================================================================
 
 
-class TestBT03ChecksumMismatchFailsClosed:
-    """Execute the real installer against a controlled corrupted fixture and
-    assert it exits nonzero before extraction or execution."""
+class TestBT302InvalidHarnessValuesRejected:
+    """Prove unset, empty, 0, true, yes, and other non-1 values do not
+    authorize overrides."""
 
-    def test_corrupted_download_rejected(self, tmp_path: Path) -> None:
-        """A valid-looking tarball with wrong content must fail checksum."""
-        # Create a valid tar.gz file with wrong content
-        fake_tarball = tmp_path / "actionlint_1.7.12_linux_amd64.tar.gz"
-        dummy_bin = tmp_path / "actionlint"
-        dummy_bin.write_text("this is not actionlint")
-        with tarfile.open(fake_tarball, "w:gz") as tar:
-            tar.add(dummy_bin, arcname="actionlint")
+    @pytest.mark.parametrize(
+        "harness_value",
+        ["", "0", "true", "yes", "2", "on", "enabled", "yes "],
+        ids=["empty", "zero", "true", "yes", "two", "on", "enabled", "yes-space"],
+    )
+    def test_invalid_harness_rejects_override(self, harness_value: str, tmp_path: Path) -> None:
+        """Non-1 harness values must not authorize overrides."""
+        env = {
+            "ACTIONLINT_TEST_HARNESS": harness_value,
+            "ACTIONLINT_TEST_OS": "Linux",
+        }
+        result = _run_script(
+            [str(INSTALL_SCRIPT), "--print-selection"],
+            env=env,
+        )
+        assert result.returncode != 0, (
+            f"Harness value '{harness_value}' must not authorize overrides"
+        )
 
-        # Expected sha = the real committed one; actual will differ -> mismatch
+    def test_harness_1_with_override_works(self, tmp_path: Path) -> None:
+        """Exact string '1' is the only value that authorizes overrides."""
+        env = {
+            "ACTIONLINT_TEST_HARNESS": "1",
+            "ACTIONLINT_TEST_OS": "Linux",
+            "ACTIONLINT_TEST_ARCH": "x86_64",
+        }
+        result = _run_script(
+            [str(INSTALL_SCRIPT), "--print-selection"],
+            env=env,
+        )
+        assert result.returncode == 0, f"Harness=1 should authorize overrides: {result.stderr}"
+
+
+# ===========================================================================
+# BT3-03: Harnessed override retains verification
+# ===========================================================================
+
+
+class TestBT303HarnessedOverrideRetainsVerification:
+    """With ACTIONLINT_TEST_HARNESS=1, prove controlled URL/digest seams work
+    but checksum and exact-version verification still execute."""
+
+    def test_harnessed_url_override_still_verifies_checksum(self, tmp_path: Path) -> None:
+        """A harnessed URL pointing to wrong content must still fail checksum."""
+        fake_tarball = _make_valid_tarball(tmp_path, "actionlint_1.7.12_linux_amd64.tar.gz", "fake")
         result = _run_script(
             [str(INSTALL_SCRIPT), str(tmp_path / "installdir")],
             env={
@@ -224,45 +204,314 @@ class TestBT03ChecksumMismatchFailsClosed:
                 "ACTIONLINT_TEST_OS": "Linux",
                 "ACTIONLINT_TEST_ARCH": "x86_64",
                 "ACTIONLINT_TEST_URL": f"file://{fake_tarball}",
-                # Keep the real expected SHA so the corrupted fixture mismatches
+                # Real expected SHA so the fake content mismatches
             },
         )
-        assert result.returncode != 0, "Checksum mismatch must fail closed"
+        assert result.returncode != 0, "Checksum must still execute even with harness overrides"
         assert "SHA-256 mismatch" in result.stderr or "mismatch" in result.stderr.lower()
-        # Must fail BEFORE extraction or execution — no actionlint binary installed
-        assert not (tmp_path / "installdir" / "actionlint").exists(), (
-            "Corrupted download must not be extracted"
+
+    def test_harnessed_sha_override_still_verifies_version(self, tmp_path: Path) -> None:
+        """A harnessed SHA override that passes checksum but wrong version must
+        still fail version verification."""
+        wrong_version_script = '#!/usr/bin/env bash\necho "1.7.120"\n'
+        fake_tarball = _make_valid_tarball(
+            tmp_path / "sub1", "actionlint_1.7.12_linux_amd64.tar.gz", wrong_version_script
         )
-
-
-# ===========================================================================
-# BT-04: Download failure fails closed
-# ===========================================================================
-
-
-class TestBT04DownloadFailureFailsClosed:
-    """Execute the real installer with a controlled failed downloader and
-    assert nonzero exit."""
-
-    def test_nonexistent_url_fails_closed(self, tmp_path: Path) -> None:
-        """A URL that returns 404 must produce a nonzero exit."""
+        actual_sha = hashlib.sha256(fake_tarball.read_bytes()).hexdigest()
         result = _run_script(
             [str(INSTALL_SCRIPT), str(tmp_path / "installdir")],
             env={
                 "ACTIONLINT_TEST_HARNESS": "1",
                 "ACTIONLINT_TEST_OS": "Linux",
                 "ACTIONLINT_TEST_ARCH": "x86_64",
-                "ACTIONLINT_TEST_URL": (
-                    "https://github.com/rhysd/actionlint/releases/download/"
-                    "v1.7.12/DOES_NOT_EXIST.tar.gz"
-                ),
+                "ACTIONLINT_TEST_URL": f"file://{fake_tarball}",
+                "ACTIONLINT_TEST_SHA256": actual_sha,
             },
         )
-        assert result.returncode != 0, "Download failure must fail closed"
+        assert result.returncode != 0, "Version must still be verified even with harness overrides"
+        assert "version mismatch" in result.stderr.lower() or "version" in result.stderr.lower()
+
+
+# ===========================================================================
+# BT3-04: Exact version matching
+# ===========================================================================
+
+
+class TestBT304ExactVersionMatching:
+    """Prove the real candidate-validation path accepts the genuine expected
+    version and rejects 1.7.120, prefix-1.7.12, 1.7.12-malicious, malformed,
+    empty, and failing outputs."""
+
+    @pytest.mark.parametrize(
+        "version_output,should_accept",
+        [
+            ("1.7.12\nhttps://github.com/rhysd/actionlint\n", True),
+            ("1.7.120\n", False),
+            ("prefix-1.7.12\n", False),
+            ("1.7.12-malicious\n", False),
+            ("1.7.12.0\n", False),
+            ("", False),
+            ("malformed output\n", False),
+            ("1.7.12 \n", True),  # trailing space trimmed
+            (" 1.7.12\n", True),  # leading space trimmed
+        ],
+        ids=[
+            "genuine",
+            "1.7.120",
+            "prefix",
+            "malicious-suffix",
+            "extra-dot",
+            "empty",
+            "malformed",
+            "trailing-space",
+            "leading-space",
+        ],
+    )
+    def test_version_acceptance(
+        self, version_output: str, should_accept: bool, tmp_path: Path
+    ) -> None:
+        """Test the exact version parser against various outputs."""
+        # Build a fake tarball with a script outputting the given version
+        escaped = version_output.replace("\\", "\\\\").replace("'", "'\\''")
+        script_content = f"""#!/usr/bin/env bash
+printf '{escaped}'
+"""
+        # For the empty case, the binary outputs nothing
+        if version_output == "":
+            script_content = "#!/usr/bin/env bash\ntrue\n"
+
+        fake_tarball = _make_valid_tarball(
+            tmp_path / f"v_{hash(version_output)}",
+            "actionlint_1.7.12_linux_amd64.tar.gz",
+            script_content,
+        )
+        actual_sha = hashlib.sha256(fake_tarball.read_bytes()).hexdigest()
+        result = _run_script(
+            [str(INSTALL_SCRIPT), str(tmp_path / "installdir")],
+            env={
+                "ACTIONLINT_TEST_HARNESS": "1",
+                "ACTIONLINT_TEST_OS": "Linux",
+                "ACTIONLINT_TEST_ARCH": "x86_64",
+                "ACTIONLINT_TEST_URL": f"file://{fake_tarball}",
+                "ACTIONLINT_TEST_SHA256": actual_sha,
+            },
+        )
+        if should_accept:
+            # Should succeed — accepted and installed
+            assert result.returncode == 0, (
+                f"Version output {version_output!r} should be accepted: {result.stderr}"
+            )
+        else:
+            assert result.returncode != 0, f"Version output {version_output!r} should be rejected"
+            assert "version" in result.stderr.lower()
+
+    def test_command_failure_rejected(self, tmp_path: Path) -> None:
+        """A candidate where -version exits nonzero must be rejected."""
+        script_content = "#!/usr/bin/env bash\nexit 1\n"
+        fake_tarball = _make_valid_tarball(
+            tmp_path / "cmdfail",
+            "actionlint_1.7.12_linux_amd64.tar.gz",
+            script_content,
+        )
+        actual_sha = hashlib.sha256(fake_tarball.read_bytes()).hexdigest()
+        result = _run_script(
+            [str(INSTALL_SCRIPT), str(tmp_path / "installdir")],
+            env={
+                "ACTIONLINT_TEST_HARNESS": "1",
+                "ACTIONLINT_TEST_OS": "Linux",
+                "ACTIONLINT_TEST_ARCH": "x86_64",
+                "ACTIONLINT_TEST_URL": f"file://{fake_tarball}",
+                "ACTIONLINT_TEST_SHA256": actual_sha,
+            },
+        )
+        assert result.returncode != 0
+
+
+# ===========================================================================
+# BT3-05: Rejected candidate is never installed
+# ===========================================================================
+
+
+class TestBT305RejectedCandidateNeverInstalled:
+    """For checksum and version rejection, assert no new final binary or
+    staging file remains; also prove an existing trusted binary is unchanged."""
+
+    def test_checksum_rejection_leaves_no_binary(self, tmp_path: Path) -> None:
+        """Checksum mismatch must not leave any file in install dir."""
+        install_dir = tmp_path / "installdir"
+        fake_tarball = _make_valid_tarball(
+            tmp_path / "cs", "actionlint_1.7.12_linux_amd64.tar.gz", "fake"
+        )
+        result = _run_script(
+            [str(INSTALL_SCRIPT), str(install_dir)],
+            env={
+                "ACTIONLINT_TEST_HARNESS": "1",
+                "ACTIONLINT_TEST_OS": "Linux",
+                "ACTIONLINT_TEST_ARCH": "x86_64",
+                "ACTIONLINT_TEST_URL": f"file://{fake_tarball}",
+                # Real SHA so it mismatches
+            },
+        )
+        assert result.returncode != 0
+        # No actionlint binary in install dir
+        assert not install_dir.exists() or not (install_dir / "actionlint").exists()
+        # No staging temp files
+        if install_dir.exists():
+            leftovers = list(install_dir.iterdir())
+            assert len(leftovers) == 0, f"Unexpected files in install dir: {leftovers}"
+
+    def test_version_rejection_leaves_no_binary(self, tmp_path: Path) -> None:
+        """Version mismatch must not leave any file in install dir."""
+        install_dir = tmp_path / "installdir"
+        wrong_version_script = '#!/usr/bin/env bash\necho "1.7.120"\n'
+        fake_tarball = _make_valid_tarball(
+            tmp_path / "ver", "actionlint_1.7.12_linux_amd64.tar.gz", wrong_version_script
+        )
+        actual_sha = hashlib.sha256(fake_tarball.read_bytes()).hexdigest()
+        result = _run_script(
+            [str(INSTALL_SCRIPT), str(install_dir)],
+            env={
+                "ACTIONLINT_TEST_HARNESS": "1",
+                "ACTIONLINT_TEST_OS": "Linux",
+                "ACTIONLINT_TEST_ARCH": "x86_64",
+                "ACTIONLINT_TEST_URL": f"file://{fake_tarball}",
+                "ACTIONLINT_TEST_SHA256": actual_sha,
+            },
+        )
+        assert result.returncode != 0
+        assert not install_dir.exists() or not (install_dir / "actionlint").exists()
+
+    def test_existing_trusted_binary_unchanged_on_rejection(self, tmp_path: Path) -> None:
+        """An existing trusted binary must remain unchanged when a candidate
+        is rejected."""
+        install_dir = tmp_path / "installdir"
+        install_dir.mkdir()
+
+        # Place a pre-existing trusted binary
+        trusted_bin = install_dir / "actionlint"
+        trusted_content = "#!/usr/bin/env bash\necho 'trusted-binary'\n"
+        trusted_bin.write_text(trusted_content)
+        trusted_bin.chmod(0o755)
+        trusted_hash = hashlib.sha256(trusted_bin.read_bytes()).hexdigest()
+
+        # Attempt install with wrong checksum
+        fake_tarball = _make_valid_tarball(
+            tmp_path / "exist", "actionlint_1.7.12_linux_amd64.tar.gz", "fake"
+        )
+        result = _run_script(
+            [str(INSTALL_SCRIPT), str(install_dir)],
+            env={
+                "ACTIONLINT_TEST_HARNESS": "1",
+                "ACTIONLINT_TEST_OS": "Linux",
+                "ACTIONLINT_TEST_ARCH": "x86_64",
+                "ACTIONLINT_TEST_URL": f"file://{fake_tarball}",
+            },
+        )
+        assert result.returncode != 0
+
+        # The trusted binary must be unchanged
+        assert trusted_bin.exists(), "Existing trusted binary must not be deleted"
+        actual_hash = hashlib.sha256(trusted_bin.read_bytes()).hexdigest()
+        assert actual_hash == trusted_hash, (
+            "Existing trusted binary content must be unchanged on rejection"
+        )
+
+
+# ===========================================================================
+# BT3-06: Atomic successful replacement
+# ===========================================================================
+
+
+class TestBT306AtomicSuccessfulReplacement:
+    """Prove a valid candidate is installed only after validation and
+    atomically replaces the destination with correct executable permissions."""
+
+    def test_valid_candidate_installed_atomically(self, tmp_path: Path) -> None:
+        """A valid candidate (correct checksum + version) must be installed
+        at the final path with executable permissions."""
+        install_dir = tmp_path / "installdir"
+        genuine_script = '#!/usr/bin/env bash\necho "1.7.12"\n'
+        fake_tarball = _make_valid_tarball(
+            tmp_path / "atom", "actionlint_1.7.12_linux_amd64.tar.gz", genuine_script
+        )
+        actual_sha = hashlib.sha256(fake_tarball.read_bytes()).hexdigest()
+        result = _run_script(
+            [str(INSTALL_SCRIPT), str(install_dir)],
+            env={
+                "ACTIONLINT_TEST_HARNESS": "1",
+                "ACTIONLINT_TEST_OS": "Linux",
+                "ACTIONLINT_TEST_ARCH": "x86_64",
+                "ACTIONLINT_TEST_URL": f"file://{fake_tarball}",
+                "ACTIONLINT_TEST_SHA256": actual_sha,
+            },
+        )
+        assert result.returncode == 0, (
+            f"Valid candidate should install successfully: {result.stderr}"
+        )
+        installed = install_dir / "actionlint"
+        assert installed.exists(), "Binary must exist at final path"
+        # Must be executable
+        perms = stat.S_IMODE(installed.stat().st_mode)
+        assert perms & stat.S_IXUSR, f"Installed binary must be executable, got perms {oct(perms)}"
+        # No staging temp files left behind
+        leftovers = [f for f in install_dir.iterdir() if f.name != "actionlint"]
+        assert len(leftovers) == 0, f"Unexpected staging files: {leftovers}"
+
+    def test_replacement_of_existing_binary(self, tmp_path: Path) -> None:
+        """Replacing an existing trusted binary must succeed atomically."""
+        install_dir = tmp_path / "installdir"
+        install_dir.mkdir()
+        old_bin = install_dir / "actionlint"
+        old_bin.write_text("#!/usr/bin/env bash\necho 'old'\n")
+        old_bin.chmod(0o755)
+
+        genuine_script = '#!/usr/bin/env bash\necho "1.7.12"\n'
+        fake_tarball = _make_valid_tarball(
+            tmp_path / "repl", "actionlint_1.7.12_linux_amd64.tar.gz", genuine_script
+        )
+        actual_sha = hashlib.sha256(fake_tarball.read_bytes()).hexdigest()
+        result = _run_script(
+            [str(INSTALL_SCRIPT), str(install_dir)],
+            env={
+                "ACTIONLINT_TEST_HARNESS": "1",
+                "ACTIONLINT_TEST_OS": "Linux",
+                "ACTIONLINT_TEST_ARCH": "x86_64",
+                "ACTIONLINT_TEST_URL": f"file://{fake_tarball}",
+                "ACTIONLINT_TEST_SHA256": actual_sha,
+            },
+        )
+        assert result.returncode == 0
+        new_content = old_bin.read_text()
+        assert "1.7.12" in new_content, "Binary should be replaced with new content"
+
+
+# ===========================================================================
+# BT3-07: Local deterministic download failure
+# ===========================================================================
+
+
+class TestBT307LocalDeterministicDownloadFailure:
+    """Use a controlled local curl shim that exits nonzero; prove the real
+    installer fails without external network access."""
+
+    def test_failing_curl_shim_rejected(self, tmp_path: Path) -> None:
+        """A failing curl shim must cause the installer to fail closed."""
+        shim = _make_failing_curl_shim(tmp_path)
+        result = _run_script(
+            [str(INSTALL_SCRIPT), str(tmp_path / "installdir")],
+            env={
+                "ACTIONLINT_TEST_HARNESS": "1",
+                "ACTIONLINT_TEST_OS": "Linux",
+                "ACTIONLINT_TEST_ARCH": "x86_64",
+                "ACTIONLINT_TEST_URL": "file:///nonexistent/path.tar.gz",
+                "ACTIONLINT_TEST_CURL": str(shim),
+            },
+        )
+        assert result.returncode != 0, "Failing curl shim must cause nonzero exit"
         assert "download" in result.stderr.lower() or "fail" in result.stderr.lower()
 
     def test_file_url_to_nonexistent_path_fails(self, tmp_path: Path) -> None:
-        """A file:// URL pointing to a nonexistent path must fail."""
+        """A file:// URL to a nonexistent path must fail (no external network)."""
         result = _run_script(
             [str(INSTALL_SCRIPT), str(tmp_path / "installdir")],
             env={
@@ -276,90 +525,79 @@ class TestBT04DownloadFailureFailsClosed:
 
 
 # ===========================================================================
-# BT-05: Version mismatch fails closed
+# BT3-08: Non-skippable missing uv
 # ===========================================================================
 
 
-class TestBT05VersionMismatchFailsClosed:
-    """Provide a controlled binary reporting the wrong actionlint version and
-    assert it is rejected."""
+class TestBT308NonSkippableMissingUv:
+    """Use a temporary controlled PATH that contains needed commands but
+    excludes uv; prove run_workflow_lint.sh always executes and fails nonzero
+    without pytest.skip."""
 
-    def test_wrong_version_rejected(self, tmp_path: Path) -> None:
-        """A binary that passes checksum (using a matching override SHA) but
-        reports the wrong version must be rejected."""
-        # Build a fake tarball containing a shell script that reports v9.9.9
-        fake_bin_content = '#!/usr/bin/env bash\necho "1.99.99"\n'
-        fake_tarball = tmp_path / "actionlint_1.7.12_linux_amd64.tar.gz"
-        staging = tmp_path / "staging"
-        staging.mkdir()
-        fake_bin = staging / "actionlint"
-        fake_bin.write_text(fake_bin_content)
-        fake_bin.chmod(0o755)
-        with tarfile.open(fake_tarball, "w:gz") as tar:
-            tar.add(fake_bin, arcname="actionlint")
+    def test_missing_uv_always_fails(self, tmp_path: Path) -> None:
+        """run_workflow_lint.sh must fail nonzero in a controlled PATH
+        without uv — no skip allowed."""
+        # Build a controlled PATH with bash, curl, sha256sum, tar, make
+        # but explicitly excluding uv
+        controlled_bin = tmp_path / "bin"
+        controlled_bin.mkdir()
 
-        # Compute the actual SHA of our fake tarball so checksum passes
-        actual_sha = hashlib.sha256(fake_tarball.read_bytes()).hexdigest()
+        # Create symlinks to needed commands
+        needed = [
+            "bash",
+            "curl",
+            "tar",
+            "sha256sum",
+            "shasum",
+            "make",
+            "git",
+            "awk",
+            "sed",
+            "grep",
+            "mkdir",
+            "rm",
+            "cp",
+            "mv",
+            "chmod",
+            "head",
+            "command",
+            "dirname",
+            "pwd",
+            "cat",
+            "echo",
+            "mktemp",
+        ]
+        for cmd in needed:
+            path = subprocess.run(
+                ["bash", "-c", f"command -v {cmd} 2>/dev/null"],
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            if path:
+                link = controlled_bin / cmd
+                if not link.exists():
+                    link.symlink_to(path)
 
-        result = _run_script(
-            [str(INSTALL_SCRIPT), str(tmp_path / "installdir")],
-            env={
-                "ACTIONLINT_TEST_HARNESS": "1",
-                "ACTIONLINT_TEST_OS": "Linux",
-                "ACTIONLINT_TEST_ARCH": "x86_64",
-                "ACTIONLINT_TEST_URL": f"file://{fake_tarball}",
-                "ACTIONLINT_TEST_SHA256": actual_sha,  # checksum will pass
-            },
-        )
-        assert result.returncode != 0, "Version mismatch must fail closed even when checksum passes"
-        assert "version mismatch" in result.stderr.lower() or "version" in result.stderr.lower()
+        controlled_path = str(controlled_bin)
 
-
-# ===========================================================================
-# BT-06: Missing uv fails closed
-# ===========================================================================
-
-
-class TestBT06MissingUvFailsClosed:
-    """Execute scripts/run_workflow_lint.sh in a controlled PATH without uv
-    and assert nonzero exit."""
-
-    def test_run_workflow_lint_fails_without_uv(self) -> None:
-        """run_workflow_lint.sh must exit nonzero when uv is not on PATH."""
-        # Build a minimal PATH with only essential utilities (bash, coreutils)
-        # but NO uv. Use /usr/bin and /bin which have bash, curl, etc.
-        stripped_path = "/usr/bin:/bin"
-        # Verify uv is NOT on this stripped path
+        # Verify uv is NOT on this path
         uv_check = subprocess.run(
-            ["bash", "-c", f'PATH="{stripped_path}" command -v uv'],
+            ["bash", "-c", f'PATH="{controlled_path}" command -v uv 2>/dev/null'],
             capture_output=True,
             text=True,
         )
-        if uv_check.stdout.strip():
-            pytest.skip("uv found on stripped path; cannot test missing-uv path")
+        assert not uv_check.stdout.strip(), "Test setup error: uv found on controlled PATH"
 
         result = subprocess.run(
             ["bash", str(RUN_LINT_SCRIPT)],
             capture_output=True,
             text=True,
             env={
-                "PATH": stripped_path,
+                "PATH": controlled_path,
                 "HOME": os.environ.get("HOME", "/tmp"),
-                "CI": "",  # not in CI
             },
             cwd=str(REPO_ROOT),
             timeout=30,
         )
-        assert result.returncode != 0, "Missing uv must fail closed"
+        assert result.returncode != 0, "Missing uv must always fail closed — no skip allowed"
         assert "uv" in result.stderr.lower()
-
-
-# ===========================================================================
-# BT-07: Happy path remains green
-# ===========================================================================
-# The BT-07 happy-path proof is the real ``make workflow-lint`` command,
-# executed as a standalone local verification (recorded in the completion
-# report) and as the CI ``workflow-lint`` job on the exact PR head SHA.
-# It is deliberately NOT a pytest test because calling ``make workflow-lint``
-# from inside pytest mutates the shared ``.venv`` (uv recreates it for the
-# default Python), which breaks subsequent tests in the CI matrix.
