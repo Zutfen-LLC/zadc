@@ -40,6 +40,7 @@ if str(_REPO_ROOT) not in sys.path:
 from scripts.export_schemas import (  # noqa: E402
     _SCHEMA_SPECS,
     _build_schema_for_spec,
+    _raw_json_schema,
     export_all_schemas,
 )
 
@@ -117,7 +118,7 @@ class TestSchemaReproducibility:
 class TestExportedSchemaDiffersOnlyByMetadataAndOrdering:
     @pytest.mark.parametrize("spec", _SCHEMA_SPECS, ids=lambda s: s.filename)
     def test_business_constraints_match_raw_model_schema(self, spec: object) -> None:
-        raw = spec.model.model_json_schema(mode="validation")  # type: ignore[attr-defined]
+        raw = _raw_json_schema(spec)  # type: ignore[arg-type]
         exported = _build_schema_for_spec(spec)  # type: ignore[arg-type]
 
         raw_stripped = _strip_metadata(cast(dict[str, Any], raw))

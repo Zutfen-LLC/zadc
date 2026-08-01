@@ -39,12 +39,16 @@ Sub-slices:
   union, and their supporting models — preserving the distinction between
   reviewer judgment and authenticated human authority. No derived
   lifecycle state, policy evaluation, trusted identity binding, or merge
-  authorization. (Current)
+  authorization. **Complete.**
 - **A2B2 — Workflow bundle and global artifact union:** WorkflowBundle
-  body model and the global discriminated artifact union across all
-  artifact types. (Next)
+  body model (AgentRunReference, BundleBlocker, DerivedStateSnapshot) and
+  the global, `artifact_type`-discriminated `ZadcArtifact` union across all
+  eight concrete artifacts, plus a public validation adapter. Bundle-
+  internal structural consistency only — no lifecycle derivation, policy
+  evaluation, external reference resolution, or provider adapters.
+  (Current)
 - **A3 — Rendered views:** Consumer-specific renderers for Hermes, Codex,
-  Claude, CI, and human-readable output.
+  Claude, CI, and human-readable output. (Next)
 
 ### ZADC-001B — Workflow bundles and derived lifecycle
 

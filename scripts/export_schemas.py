@@ -26,6 +26,15 @@ backward compatibility with existing callers.
 A2B1: The same data-driven spec list gained two more entries — ReviewReport
 and DecisionRecord — with no change to the exporter's mutation surface
 (still limited to document metadata and deterministic key ordering).
+
+A2B2: The spec list gained a ninth entry — WorkflowBundle — plus a tenth
+entry for the global ``ZadcArtifact`` discriminated union, whose schema
+source is a Pydantic ``TypeAdapter`` rather than a ``BaseModel`` subclass.
+``_SchemaSpec.model`` is generalized to accept either, and
+``_raw_json_schema()`` dispatches to the appropriate Pydantic schema-
+generation method (``BaseModel.model_json_schema()`` or
+``TypeAdapter.json_schema()``); the exporter's mutation surface is
+otherwise unchanged.
 """
 
 import argparse
@@ -33,6 +42,7 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 # Add src to path for direct script execution
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -40,8 +50,9 @@ _SRC_DIR = _REPO_ROOT / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
-from pydantic import BaseModel  # noqa: E402
+from pydantic import BaseModel, TypeAdapter  # noqa: E402
 
+from zadc.models.artifact_union import ZADC_ARTIFACT_ADAPTER  # noqa: E402
 from zadc.models.certification_manifest import CertificationManifest  # noqa: E402
 from zadc.models.common import ArtifactEnvelope  # noqa: E402
 from zadc.models.completion_report import CompletionReport  # noqa: E402
@@ -50,6 +61,7 @@ from zadc.models.evidence_artifact import EvidenceArtifact  # noqa: E402
 from zadc.models.observation import Observation  # noqa: E402
 from zadc.models.packet import Packet  # noqa: E402
 from zadc.models.review_report import ReviewReport  # noqa: E402
+from zadc.models.workflow_bundle import WorkflowBundle  # noqa: E402
 from zadc.types import SCHEMA_ID  # noqa: E402
 
 #: Base URL for the per-model $id of every A2A concrete-artifact schema.
@@ -74,9 +86,14 @@ _TOP_LEVEL_KEY_ORDER = [
 
 @dataclass(frozen=True)
 class _SchemaSpec:
-    """One (model, output file, document metadata) schema export target."""
+    """One (schema source, output file, document metadata) schema export target.
 
-    model: type[BaseModel]
+    ``model`` is either a concrete ``BaseModel`` subclass (every A1/A2A/A2B1/
+    WorkflowBundle entry) or a Pydantic ``TypeAdapter`` (the global
+    ``ZadcArtifact`` discriminated-union entry) — see :func:`_raw_json_schema`.
+    """
+
+    model: type[BaseModel] | TypeAdapter[Any]
     filename: str
     schema_id: str
     title: str
@@ -180,6 +197,36 @@ _SCHEMA_SPECS: tuple[_SchemaSpec, ...] = (
             "authorization."
         ),
     ),
+    _SchemaSpec(
+        model=WorkflowBundle,
+        filename="workflow-bundle.schema.json",
+        schema_id=f"{_SCHEMA_BASE_URL}/workflow-bundle.schema.json",
+        title="ZADC Workflow Bundle",
+        description=(
+            "The canonical aggregate for one slice instance for the Zutfen "
+            "Agentic Development Contract v0.1 (architecture sections 8.15, "
+            "11.6). Links referenced artifacts by stable ID and content "
+            "digest and carries a recorded derived-state snapshot; it does "
+            "not embed full artifacts, recompute derived state, or verify "
+            "that a referenced artifact_id resolves to a sealed artifact "
+            "of its collection's claimed type."
+        ),
+    ),
+    _SchemaSpec(
+        model=ZADC_ARTIFACT_ADAPTER,
+        filename="zadc-artifact.schema.json",
+        schema_id=f"{_SCHEMA_BASE_URL}/zadc-artifact.schema.json",
+        title="ZADC Artifact",
+        description=(
+            "The global, artifact_type-discriminated union of every "
+            "concrete ZADC v0.1 artifact (Packet, CompletionReport, "
+            "CertificationManifest, EvidenceArtifact, Observation, "
+            "ReviewReport, DecisionRecord, WorkflowBundle) for the Zutfen "
+            "Agentic Development Contract v0.1 (architecture section A2B2). "
+            "Dispatches each payload to its exact concrete artifact schema "
+            "by its artifact_type discriminator."
+        ),
+    ),
 )
 
 #: The artifact-envelope spec, kept addressable for ``_build_envelope_schema``.
@@ -195,6 +242,22 @@ def _reorder_dict(data: dict[str, object], key_order: list[str]) -> dict[str, ob
     for key in sorted(k for k in data if k not in key_order):
         result[key] = data[key]
     return result
+
+
+def _raw_json_schema(spec: _SchemaSpec) -> dict[str, object]:
+    """Return the unprocessed Pydantic-generated JSON Schema for one spec's source.
+
+    Dispatches on the spec's schema source: a ``BaseModel`` subclass uses
+    ``model_json_schema()``; a ``TypeAdapter`` (the global ``ZadcArtifact``
+    union) uses ``json_schema()``. Both are called with ``mode="validation"``
+    for parity. This is the only generalization the exporter needed to
+    support a discriminated-union schema source alongside single-model
+    sources — no other exporter behavior changed.
+    """
+    source = spec.model
+    if isinstance(source, TypeAdapter):
+        return dict(source.json_schema(mode="validation"))
+    return dict(source.model_json_schema(mode="validation"))
 
 
 def _build_schema_for_spec(spec: _SchemaSpec) -> dict[str, object]:
@@ -219,7 +282,7 @@ def _build_schema_for_spec(spec: _SchemaSpec) -> dict[str, object]:
     for the itemized list of which invariants are schema-expressible and
     which are runtime-only.
     """
-    raw = spec.model.model_json_schema(mode="validation")
+    raw = _raw_json_schema(spec)
 
     schema: dict[str, object] = dict(raw)
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"

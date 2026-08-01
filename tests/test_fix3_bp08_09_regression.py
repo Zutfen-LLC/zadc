@@ -146,11 +146,21 @@ class TestFix3BP09Regression:
         errors = list(v.iter_errors(data))
         assert errors == []
 
-    def test_no_a2b2_symbols(self) -> None:
+    def test_no_a3_plus_symbols(self) -> None:
         """A2A adds Packet/CompletionReport; A2B1 adds ReviewReport/
-        DecisionRecord; later-slice symbols remain absent."""
+        DecisionRecord; A2B2 adds WorkflowBundle/ZadcArtifact; later-slice
+        symbols (lifecycle derivation, policy evaluation, provider adapters,
+        renderers, Engram/Flowstate integration) remain absent."""
         import zadc
 
-        prohibited = {"WorkflowBundle", "LifecycleState"}
+        prohibited = {
+            "LifecycleState",
+            "PolicyEvaluator",
+            "GitAdapter",
+            "GitHubAdapter",
+            "Renderer",
+            "EngramIntegration",
+            "FlowstateIntegration",
+        }
         for name in prohibited:
             assert not hasattr(zadc, name)
