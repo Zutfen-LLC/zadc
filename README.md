@@ -12,17 +12,25 @@ machine-readable contract for governing evidence-backed, human-authorized
 AI-assisted software development.
 
 This repository contains the open contract specification and a Python
-foundation with the first concrete canonical artifact models: **Packet**,
-**CompletionReport**, **CertificationManifest**, **EvidenceArtifact**, and
-**Observation** — each strict, frozen, deterministically canonicalized,
-digest-sealed, and backed by a generated JSON Schema. See
-[docs/api-a1-foundation.md](docs/api-a1-foundation.md) and
-[docs/api-a2a-execution-evidence-artifacts.md](docs/api-a2a-execution-evidence-artifacts.md).
+foundation with concrete canonical artifact models: **Packet**,
+**CompletionReport**, **CertificationManifest**, **EvidenceArtifact**,
+**Observation**, **ReviewReport**, and **DecisionRecord** — each strict,
+frozen, deterministically canonicalized, digest-sealed, and backed by a
+generated JSON Schema. See
+[docs/api-a1-foundation.md](docs/api-a1-foundation.md),
+[docs/api-a2a-execution-evidence-artifacts.md](docs/api-a2a-execution-evidence-artifacts.md),
+and
+[docs/api-a2b1-review-decision-artifacts.md](docs/api-a2b1-review-decision-artifacts.md).
 
-Lifecycle state derivation, policy evaluation, review/decision artifacts,
-Git/GitHub reconciliation, consumer-specific renderers, and Engram/Flowstate
-integration are **not yet implemented** and are intentionally deferred to
-subsequent work slices.
+`ReviewReport` and `DecisionRecord` preserve the distinction between
+reviewer judgment and authenticated human authority: a structurally valid
+artifact does not, by itself, authenticate reviewer or human-decider
+identity, prove reviewer independence, or confer merge authorization.
+
+Lifecycle state derivation, policy evaluation, WorkflowBundle and the
+global artifact union, Git/GitHub reconciliation, consumer-specific
+renderers, and Engram/Flowstate integration are **not yet implemented**
+and are intentionally deferred to subsequent work slices.
 
 ## Identity
 

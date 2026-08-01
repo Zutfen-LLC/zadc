@@ -1,0 +1,1090 @@
+{
+  "$defs": {
+    "ArtifactFindingLocation": {
+      "additionalProperties": false,
+      "description": "A finding location anchored to another ZADC artifact by ID.\n\nDoes not perform repository lookup or cross-artifact reference\nresolution — ``artifact_id`` is recorded as claimed only.",
+      "properties": {
+        "artifact_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "location_type": {
+          "const": "artifact",
+          "title": "Location Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "location_type",
+        "artifact_id"
+      ],
+      "title": "ArtifactFindingLocation",
+      "type": "object"
+    },
+    "ArtifactReference": {
+      "additionalProperties": false,
+      "description": "A reference to another canonical ZADC artifact by ID and content digest.\n\nDistinct from :class:`EvidenceReference`, which points at an external,\nnon-ZADC evidence payload rather than another sealed ZADC artifact.",
+      "properties": {
+        "artifact_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "content_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Content Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "content_digest"
+      ],
+      "title": "ArtifactReference",
+      "type": "object"
+    },
+    "EvidenceReference": {
+      "additionalProperties": false,
+      "description": "A pointer to an external evidence payload (architecture section 11.3).\n\nCarries the evidence identifier, its media type, the payload's own\nSHA-256 digest, and a trusted URI/provider location. This is a\nlightweight, denormalized reference distinct from a full\n:class:`~zadc.models.evidence_artifact.EvidenceArtifact` record — it\ndoes not carry availability, size, or a description.",
+      "properties": {
+        "artifact_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "location": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Location",
+          "type": "string"
+        },
+        "media_type": {
+          "maxLength": 255,
+          "minLength": 3,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9!#$&\\-\\^_.+]*/[A-Za-z0-9][A-Za-z0-9!#$&\\-\\^_.+]*$",
+          "title": "Media Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "media_type",
+        "digest",
+        "location"
+      ],
+      "title": "EvidenceReference",
+      "type": "object"
+    },
+    "FileFindingLocation": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "end_line": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            },
+            "required": [
+              "end_line"
+            ]
+          },
+          "then": {
+            "properties": {
+              "start_line": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            },
+            "required": [
+              "start_line"
+            ]
+          }
+        }
+      ],
+      "description": "A finding location anchored to a file (and optional line range).\n\nRejects fields belonging only to another location variant\n(``artifact_id``, ``description``) via strict ``extra=\"forbid\"``. Does\nnot verify that the referenced file or line range exists.",
+      "properties": {
+        "end_line": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Line"
+        },
+        "location_type": {
+          "const": "file",
+          "title": "Location Type",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "start_line": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Line"
+        }
+      },
+      "required": [
+        "location_type",
+        "path"
+      ],
+      "title": "FileFindingLocation",
+      "type": "object"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "resolved"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "resolution_refs": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "accepted_risk"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "resolution_refs": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ],
+      "description": "One review finding with a typed location and lifecycle status.\n\nDoes not verify that a resolution reference resolves or actually\ncloses the finding — ``resolution_refs`` records claimed resolution\nevidence only.",
+      "properties": {
+        "finding_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._\\-]*[A-Za-z0-9])?$",
+          "title": "Finding Id",
+          "type": "string"
+        },
+        "location": {
+          "discriminator": {
+            "mapping": {
+              "artifact": "#/$defs/ArtifactFindingLocation",
+              "file": "#/$defs/FileFindingLocation",
+              "general": "#/$defs/GeneralFindingLocation"
+            },
+            "propertyName": "location_type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/FileFindingLocation"
+            },
+            {
+              "$ref": "#/$defs/ArtifactFindingLocation"
+            },
+            {
+              "$ref": "#/$defs/GeneralFindingLocation"
+            }
+          ],
+          "title": "Location"
+        },
+        "rationale": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "resolution_refs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactReference"
+          },
+          "title": "Resolution Refs",
+          "type": "array"
+        },
+        "severity": {
+          "enum": [
+            "blocker",
+            "major",
+            "minor",
+            "note"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "open",
+            "resolved",
+            "accepted_risk",
+            "invalid",
+            "superseded"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "finding_id",
+        "severity",
+        "status",
+        "location",
+        "statement",
+        "rationale",
+        "resolution_refs"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "GeneralFindingLocation": {
+      "additionalProperties": false,
+      "description": "A finding location with no file or artifact anchor — free-text only.",
+      "properties": {
+        "description": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "location_type": {
+          "const": "general",
+          "title": "Location Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "location_type",
+        "description"
+      ],
+      "title": "GeneralFindingLocation",
+      "type": "object"
+    },
+    "PolicyReference": {
+      "additionalProperties": false,
+      "description": "Reference to the policy governing an artifact.\n\nFields (architecture section 10, ``policy``):\n- ``policy_id``: the policy identifier (e.g. ``zutfen:zadc-policy:standard@0.1.0``).\n- ``policy_source_sha``: the trusted commit SHA the policy was loaded from.\n- ``policy_digest``: the SHA-256 digest of the policy content.",
+      "properties": {
+        "policy_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Policy Digest",
+          "type": "string"
+        },
+        "policy_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "policy_source_sha": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Policy Source Sha",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "policy_source_sha",
+        "policy_digest"
+      ],
+      "title": "PolicyReference",
+      "type": "object"
+    },
+    "ProducerIdentity": {
+      "additionalProperties": false,
+      "description": "Identity of the actor that produced an artifact.\n\nFields (architecture section 10, ``producer``):\n- ``actor_type``: human, agent, ci, validator, service.\n- ``actor_id``: URI-shaped global identifier for the actor.\n- ``run_id``: optional run/execution identifier.\n- ``model``: optional model identifier (for agent producers).\n- ``provider``: optional provider/service identifier.",
+      "properties": {
+        "actor_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "actor_type": {
+          "enum": [
+            "human",
+            "agent",
+            "ci",
+            "validator",
+            "service"
+          ],
+          "title": "Actor Type",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+                },
+                {
+                  "if": {
+                    "pattern": "^urn:[uU][uU][iI][dD]:"
+                  },
+                  "then": {
+                    "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  }
+                }
+              ],
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        }
+      },
+      "required": [
+        "actor_type",
+        "actor_id"
+      ],
+      "title": "ProducerIdentity",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "description": "Provenance chain for an artifact.\n\nFields (architecture section 10, ``provenance``):\n- ``parent_artifact_ids``: REQUIRED immutable tuple of parent artifact IDs.\n  Accepted as ``list`` or ``tuple`` at construction; internally immutable.\n  Root artifacts must explicitly supply an empty array/tuple.\n- ``content_digest``: optional SHA-256 digest of the artifact content.\n  May be absent only before sealing.",
+      "properties": {
+        "content_digest": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Digest"
+        },
+        "parent_artifact_ids": {
+          "items": {
+            "allOf": [
+              {
+                "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+              },
+              {
+                "if": {
+                  "pattern": "^urn:[uU][uU][iI][dD]:"
+                },
+                "then": {
+                  "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                }
+              }
+            ],
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Parent Artifact Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "parent_artifact_ids"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "ReviewIndependence": {
+      "additionalProperties": false,
+      "description": "The reviewer's independence claim relative to the executing actor.\n\nRecords that ``executor_actor_id`` was the executing actor and whether\nindependence was ``satisfied``. This is an internal-consistency check\nonly (see :class:`ReviewReport`) — it does not prove trusted reviewer\nindependence.",
+      "properties": {
+        "executor_actor_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Executor Actor Id",
+          "type": "string"
+        },
+        "satisfied": {
+          "title": "Satisfied",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "executor_actor_id",
+        "satisfied"
+      ],
+      "title": "ReviewIndependence",
+      "type": "object"
+    },
+    "ReviewInputs": {
+      "additionalProperties": false,
+      "description": "The diffs, files, and evidence artifacts a review claims to cover.",
+      "properties": {
+        "diffs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceReference"
+          },
+          "title": "Diffs",
+          "type": "array"
+        },
+        "evidence_artifacts": {
+          "items": {
+            "$ref": "#/$defs/ArtifactReference"
+          },
+          "title": "Evidence Artifacts",
+          "type": "array"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/ReviewedFile"
+          },
+          "title": "Files",
+          "type": "array"
+        }
+      },
+      "required": [
+        "diffs",
+        "files",
+        "evidence_artifacts"
+      ],
+      "title": "ReviewInputs",
+      "type": "object"
+    },
+    "ReviewSubject": {
+      "additionalProperties": false,
+      "description": "The exact subject a :class:`ReviewReport` claims to have examined.\n\nThis model records the claimed subject identity only; it does not\ninspect Git, retrieve evidence, or prove that the listed inputs were\nactually reviewed.",
+      "properties": {
+        "certification_manifest_ids": {
+          "items": {
+            "allOf": [
+              {
+                "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+              },
+              {
+                "if": {
+                  "pattern": "^urn:[uU][uU][iI][dD]:"
+                },
+                "then": {
+                  "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                }
+              }
+            ],
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Certification Manifest Ids",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "packet_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Packet Digest",
+          "type": "string"
+        },
+        "repository_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Repository Id",
+          "type": "string"
+        },
+        "review_subject_sha": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Review Subject Sha",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository_id",
+        "review_subject_sha",
+        "packet_digest",
+        "certification_manifest_ids"
+      ],
+      "title": "ReviewSubject",
+      "type": "object"
+    },
+    "ReviewedFile": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "end_line": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            },
+            "required": [
+              "end_line"
+            ]
+          },
+          "then": {
+            "properties": {
+              "start_line": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            },
+            "required": [
+              "start_line"
+            ]
+          }
+        }
+      ],
+      "description": "One file (or file range) claimed as reviewed input.",
+      "properties": {
+        "end_line": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Line"
+        },
+        "path": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "start_line": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Line"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "ReviewedFile",
+      "type": "object"
+    },
+    "ReviewerIdentity": {
+      "additionalProperties": false,
+      "description": "Identity of the reviewer that produced a :class:`ReviewReport`.\n\nDistinct from :class:`~zadc.models.common.ProducerIdentity` in that\n``actor_type`` is narrowed to ``human`` or ``agent`` — a reviewer is\nnever a ``ci``, ``validator``, or ``service`` actor. This model records\nthe reviewer's claimed identity; it does not authenticate it.",
+      "properties": {
+        "actor_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "actor_type": {
+          "enum": [
+            "human",
+            "agent"
+          ],
+          "title": "Actor Type",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "maxLength": 20000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "maxLength": 20000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+                },
+                {
+                  "if": {
+                    "pattern": "^urn:[uU][uU][iI][dD]:"
+                  },
+                  "then": {
+                    "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  }
+                }
+              ],
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        }
+      },
+      "required": [
+        "actor_type",
+        "actor_id"
+      ],
+      "title": "ReviewerIdentity",
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.zutfen.com/zadc/0.1/review-report.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "reviewer": {
+            "properties": {
+              "actor_type": {
+                "const": "human"
+              }
+            },
+            "required": [
+              "actor_type"
+            ]
+          }
+        },
+        "required": [
+          "reviewer"
+        ]
+      },
+      "then": {
+        "properties": {
+          "producer": {
+            "properties": {
+              "actor_type": {
+                "const": "human"
+              }
+            },
+            "required": [
+              "actor_type"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "reviewer": {
+            "properties": {
+              "actor_type": {
+                "const": "agent"
+              }
+            },
+            "required": [
+              "actor_type"
+            ]
+          }
+        },
+        "required": [
+          "reviewer"
+        ]
+      },
+      "then": {
+        "properties": {
+          "producer": {
+            "properties": {
+              "actor_type": {
+                "const": "agent"
+              }
+            },
+            "required": [
+              "actor_type"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "description": "A reviewer's structured judgment of an exact subject for the Zutfen Agentic Development Contract v0.1 (architecture section A2B1). Records reviewer judgment; it does not authenticate reviewer identity, prove independence, or confer merge authorization.",
+  "properties": {
+    "artifact_id": {
+      "allOf": [
+        {
+          "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+        },
+        {
+          "if": {
+            "pattern": "^urn:[uU][uU][iI][dD]:"
+          },
+          "then": {
+            "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        }
+      ],
+      "minLength": 1,
+      "title": "Artifact Id",
+      "type": "string"
+    },
+    "artifact_type": {
+      "const": "review_report",
+      "title": "Artifact Type",
+      "type": "string"
+    },
+    "contract_version": {
+      "const": "0.1.0",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "not": {
+        "pattern": "^.*-00:00$"
+      },
+      "pattern": "^(?!0000)[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$",
+      "title": "Created At",
+      "type": "string"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "independence": {
+      "$ref": "#/$defs/ReviewIndependence"
+    },
+    "inputs_reviewed": {
+      "$ref": "#/$defs/ReviewInputs"
+    },
+    "limitations": {
+      "items": {
+        "maxLength": 20000,
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "packet_id": {
+      "allOf": [
+        {
+          "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+        },
+        {
+          "if": {
+            "pattern": "^urn:[uU][uU][iI][dD]:"
+          },
+          "then": {
+            "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        }
+      ],
+      "minLength": 1,
+      "title": "Packet Id",
+      "type": "string"
+    },
+    "policy": {
+      "$ref": "#/$defs/PolicyReference"
+    },
+    "producer": {
+      "$ref": "#/$defs/ProducerIdentity"
+    },
+    "project_id": {
+      "allOf": [
+        {
+          "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+        },
+        {
+          "if": {
+            "pattern": "^urn:[uU][uU][iI][dD]:"
+          },
+          "then": {
+            "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        }
+      ],
+      "minLength": 1,
+      "title": "Project Id",
+      "type": "string"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance"
+    },
+    "review_id": {
+      "allOf": [
+        {
+          "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+        },
+        {
+          "if": {
+            "pattern": "^urn:[uU][uU][iI][dD]:"
+          },
+          "then": {
+            "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        }
+      ],
+      "minLength": 1,
+      "title": "Review Id",
+      "type": "string"
+    },
+    "reviewer": {
+      "$ref": "#/$defs/ReviewerIdentity"
+    },
+    "reviewer_recommendation": {
+      "enum": [
+        "green_for_merge",
+        "green_for_review",
+        "red",
+        "blocked",
+        "inconclusive"
+      ],
+      "title": "Reviewer Recommendation",
+      "type": "string"
+    },
+    "schema": {
+      "const": "https://schemas.zutfen.com/zadc/0.1/artifact.schema.json",
+      "title": "Schema",
+      "type": "string"
+    },
+    "slice_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Z0-9]([A-Z0-9\\-]*[A-Z0-9])?$",
+      "title": "Slice Id",
+      "type": "string"
+    },
+    "slice_instance_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Z0-9]([A-Z0-9\\-]*[A-Z0-9])?$",
+      "title": "Slice Instance Id",
+      "type": "string"
+    },
+    "subject": {
+      "$ref": "#/$defs/ReviewSubject"
+    }
+  },
+  "required": [
+    "schema",
+    "contract_version",
+    "artifact_type",
+    "artifact_id",
+    "created_at",
+    "producer",
+    "project_id",
+    "slice_id",
+    "slice_instance_id",
+    "policy",
+    "provenance",
+    "packet_id",
+    "review_id",
+    "reviewer",
+    "independence",
+    "subject",
+    "inputs_reviewed",
+    "findings",
+    "limitations",
+    "reviewer_recommendation"
+  ],
+  "title": "ZADC Review Report",
+  "type": "object"
+}

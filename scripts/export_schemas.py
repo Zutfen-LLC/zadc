@@ -19,9 +19,13 @@ post-processing is limited to:
 
 A2A-10: The exporter is data-driven over a fixed list of (model, output
 filename, $id, title, description) specs covering the common envelope and
-all five A2A artifact models. ``export_schema()`` is retained with its
+every A2A/A2B1 artifact model. ``export_schema()`` is retained with its
 original signature and behavior (single artifact-envelope export) for
 backward compatibility with existing callers.
+
+A2B1: The same data-driven spec list gained two more entries — ReviewReport
+and DecisionRecord — with no change to the exporter's mutation surface
+(still limited to document metadata and deterministic key ordering).
 """
 
 import argparse
@@ -41,9 +45,11 @@ from pydantic import BaseModel  # noqa: E402
 from zadc.models.certification_manifest import CertificationManifest  # noqa: E402
 from zadc.models.common import ArtifactEnvelope  # noqa: E402
 from zadc.models.completion_report import CompletionReport  # noqa: E402
+from zadc.models.decision_record import DecisionRecord  # noqa: E402
 from zadc.models.evidence_artifact import EvidenceArtifact  # noqa: E402
 from zadc.models.observation import Observation  # noqa: E402
 from zadc.models.packet import Packet  # noqa: E402
+from zadc.models.review_report import ReviewReport  # noqa: E402
 from zadc.types import SCHEMA_ID  # noqa: E402
 
 #: Base URL for the per-model $id of every A2A concrete-artifact schema.
@@ -146,6 +152,32 @@ _SCHEMA_SPECS: tuple[_SchemaSpec, ...] = (
             "Zutfen Agentic Development Contract v0.1 (architecture "
             "section 8.14). A timestamped record, not a declaration of "
             "current truth."
+        ),
+    ),
+    _SchemaSpec(
+        model=ReviewReport,
+        filename="review-report.schema.json",
+        schema_id=f"{_SCHEMA_BASE_URL}/review-report.schema.json",
+        title="ZADC Review Report",
+        description=(
+            "A reviewer's structured judgment of an exact subject for the "
+            "Zutfen Agentic Development Contract v0.1 (architecture "
+            "section A2B1). Records reviewer judgment; it does not "
+            "authenticate reviewer identity, prove independence, or "
+            "confer merge authorization."
+        ),
+    ),
+    _SchemaSpec(
+        model=DecisionRecord,
+        filename="decision-record.schema.json",
+        schema_id=f"{_SCHEMA_BASE_URL}/decision-record.schema.json",
+        title="ZADC Decision Record",
+        description=(
+            "An authenticated human decision claim for the Zutfen "
+            "Agentic Development Contract v0.1 (architecture section "
+            "A2B1). A structurally valid record does not, by itself, "
+            "authenticate its human identity or confer merge "
+            "authorization."
         ),
     ),
 )
