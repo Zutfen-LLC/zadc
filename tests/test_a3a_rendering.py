@@ -721,17 +721,17 @@ def _content_digest(text: str) -> str:
 # Content excludes rendered_at, so these are stable across runs. Updating them
 # is a deliberate, review-visible action.
 GOLDEN_CONTENT_DIGESTS: dict[tuple[str, str], str] = {
-    ("packet", "human"): "7e4e5a7cdfcefd2aab7f6ba3dbd4705aacf6677ab51da16f7cc6884a174b2b53",
+    ("packet", "human"): "686ed2ba9cfbd5ed51df5833d2893cb93bf218fc2132c1e5e66de60443a20e9c",
     ("packet", "ci"): "8796be0e7df7c7f6609b782d345474f52d103e79d627a329795295b77c99e972",
     (
         "completion_report",
         "human",
-    ): "fc0c1719f8add5c330c8bf4235848abdc4421fd63ea7ab96afb5aaa7af50ab0c",
+    ): "9b0488b1a4a7eb20981cf84866d1a077e9a9e675a4fa4973b00f356fc6664126",
     ("completion_report", "ci"): "f698ca31d78e99b79d8af68d5cf8d9871cf8942f292d7756b3ef171064a14e01",
     (
         "certification_manifest",
         "human",
-    ): "3d858d7c9d94b6fab9050de7a0e51e8673369fe19a7ddf4888ad75d38814932f",
+    ): "efd8571bdbc18081a5763842a2a7b20c85c5b478cb0f123f06632870d9bc47ac",
     (
         "certification_manifest",
         "ci",
@@ -739,21 +739,21 @@ GOLDEN_CONTENT_DIGESTS: dict[tuple[str, str], str] = {
     (
         "evidence_artifact",
         "human",
-    ): "16236de6eaa4fac54e9c54478b66a591a10b344afabc7a25ea352a7334f51e90",
+    ): "d9717fa9f10d4be8afce0eeb1bd55e387dda30628c6a48b521af12abaed6b2e8",
     ("evidence_artifact", "ci"): "99e2018eea96d4987ab327935c6369b5d33564c7bcdcf13e90728934a3d693c9",
-    ("observation", "human"): "a90d2d7b885da2f3d0c2e93e064876046046f995ca06cd380c3f76b7c20378a3",
+    ("observation", "human"): "3d3be5c161f1b06af9f14b907e2bfac322bce09da3f6baebd4baa6fd71f9b9bd",
     ("observation", "ci"): "2f5b7edbdd655c9e336633fb07b365ee1152139b90618dd17cd129f0c63883d8",
-    ("review_report", "human"): "aa1f323faba3d085753de9eee46cad7a077ecc2b0684f23901ab50aaf457e306",
+    ("review_report", "human"): "4badce26430c4f0d0ff0fdde9e1bdee05720b4221bb3ae2b066a28388bff97dd",
     ("review_report", "ci"): "7ace119f1ffa0af3698c5e83b10bf740e59060790bd29a09e495944f0471057c",
     (
         "decision_record",
         "human",
-    ): "a2596887f592dcefdabd955b0264e9e4e82bb36b5a8d0bacb78d9e76daf4e562",
+    ): "176218edefd738030ec3c96e6f88f60e4b97f86f26614002825911448e9a09b1",
     ("decision_record", "ci"): "137a514bded7021ab06afa440d0dafbc5788294bd5b282d40eb8a8d39eabb3db",
     (
         "workflow_bundle",
         "human",
-    ): "7e928dc9c03032fafb883cefac8c18ee4c0fda6cb3694ce4bc78ff2bd4660b0f",
+    ): "4e0ada3cd09031af82989680fde5aa18ce26e8df82c9dab66ad48701eb886549",
     ("workflow_bundle", "ci"): "0d254e8781e9457140e7d022487a1e04b130fe16df146607982b4f9236b97cc6",
 }
 

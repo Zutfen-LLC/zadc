@@ -46,9 +46,15 @@ Sub-slices:
   eight concrete artifacts, plus a public validation adapter. Bundle-
   internal structural consistency only — no lifecycle derivation, policy
   evaluation, external reference resolution, or provider adapters.
-  (Current)
-- **A3 — Rendered views:** Consumer-specific renderers for Hermes, Codex,
-  Claude, CI, and human-readable output. (Next)
+  **Complete.**
+- **A3A — Rendering foundation:** A deterministic, non-authoritative
+  rendering layer over the eight canonical artifacts. `RenderedView`
+  projection record (strict, frozen, bound to a verified sealed source by
+  exact ID and digest), `RendererProtocol`, immutable `RendererRegistry`,
+  `render_artifact` entrypoint, a human-readable Markdown renderer, and a
+  machine-neutral CI canonical-JSON renderer. **Current.**
+- **A3B — Agent-specific renderers:** Hermes, Codex, and Claude consumer
+  renderers built on the A3A foundation. (Next)
 
 ### ZADC-001B — Workflow bundles and derived lifecycle
 

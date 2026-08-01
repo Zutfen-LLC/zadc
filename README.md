@@ -17,12 +17,17 @@ foundation with concrete canonical artifact models: **Packet**,
 **Observation**, **ReviewReport**, **DecisionRecord**, and
 **WorkflowBundle** — each strict, frozen, deterministically canonicalized,
 digest-sealed, and backed by a generated JSON Schema — plus a global,
-`artifact_type`-discriminated `ZadcArtifact` union covering all eight. See
+`artifact_type`-discriminated `ZadcArtifact` union covering all eight. It
+also adds a deterministic, **non-authoritative** rendering layer
+(`render_artifact`, `HumanMarkdownRenderer`, `CiJsonRenderer`) that projects
+any verified sealed artifact into a human-readable Markdown view or a
+machine-neutral canonical-JSON view without altering canonical authority
+semantics. See
 [docs/api-a1-foundation.md](docs/api-a1-foundation.md),
 [docs/api-a2a-execution-evidence-artifacts.md](docs/api-a2a-execution-evidence-artifacts.md),
 [docs/api-a2b1-review-decision-artifacts.md](docs/api-a2b1-review-decision-artifacts.md),
-and
-[docs/api-a2b2-workflow-bundle-union.md](docs/api-a2b2-workflow-bundle-union.md).
+[docs/api-a2b2-workflow-bundle-union.md](docs/api-a2b2-workflow-bundle-union.md),
+and [docs/api-a3a-rendering-foundation.md](docs/api-a3a-rendering-foundation.md).
 
 `ReviewReport` and `DecisionRecord` preserve the distinction between
 reviewer judgment and authenticated human authority: a structurally valid
@@ -34,9 +39,36 @@ recompute, trust-bind, or verify that snapshot, and does not verify that a
 typed reference collection's members resolve to a sealed artifact of the
 claimed type.
 
-Lifecycle state derivation, policy evaluation, Git/GitHub reconciliation,
-consumer-specific renderers, and Engram/Flowstate integration are **not yet
-implemented** and are intentionally deferred to subsequent work slices.
+Lifecycle state derivation, policy evaluation, Git/GitHub reconciliation, and
+Engram/Flowstate integration are **not yet implemented** and are intentionally
+deferred to subsequent work slices.
+
+## Rendering
+
+Any verified sealed artifact can be projected into a non-authoritative view.
+The view carries the source artifact's exact ID and content digest but is not
+itself a canonical artifact.
+
+```python
+from datetime import UTC, datetime
+
+from zadc import render_artifact, seal_artifact
+
+sealed = seal_artifact(packet)
+
+human_view = render_artifact(
+    sealed, rendered_at=datetime(2026, 8, 1, 12, 0, 0, tzinfo=UTC), consumer="human"
+)
+print(human_view.media_type)  # text/markdown
+
+ci_view = render_artifact(
+    sealed, rendered_at=datetime(2026, 8, 1, 12, 0, 0, tzinfo=UTC), consumer="ci"
+)
+print(ci_view.media_type)    # application/json
+```
+
+See [docs/api-a3a-rendering-foundation.md](docs/api-a3a-rendering-foundation.md)
+for the full boundary, registry behavior, escaping rules, and examples.
 
 ## Identity
 

@@ -93,8 +93,8 @@ _NON_AUTHORITATIVE_NOTICE = """# NON-AUTHORITATIVE RENDERED VIEW
 > value below is quoted from the single source artifact identified in the
 > "Source artifact identity" section. Rendering does not authenticate
 > identities, reconcile live state, evaluate policy, derive lifecycle state,
-> accept risk, or authorize any merge. The canonical source artifact, not this
-> view, remains authoritative."""
+> accept risk, or authorize any merge. All authority resides with the
+> canonical source artifact identified below."""
 
 _CAVEATS: dict[str, str] = {
     "review_report": (
@@ -155,7 +155,7 @@ class HumanMarkdownRenderer:
         )
         lines.append(_kv("Media type", self.media_type))
         lines.append("")
-        lines.append("## Source artifact identity (verified)")
+        lines.append("## Source artifact identity")
         lines.append("")
         lines.append(_kv("Artifact ID", artifact.artifact_id))
         lines.append(_kv("Content digest", digest_text))
