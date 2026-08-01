@@ -49,6 +49,30 @@ def _validate_line_range(start_line: Optional[int], end_line: Optional[int]) -> 
         raise ValueError("end_line must not precede start_line")
 
 
+def _line_range_json_schema_extra(schema: dict[str, Any], model: type[BaseModel]) -> None:
+    """Model-owned hook surfacing the end_line-requires-start_line presence gate.
+
+    JSON Schema can express that a present, non-null ``end_line`` requires
+    ``start_line`` to be present and non-null via a single ``if``/``then``
+    block. It cannot express that ``end_line`` must not precede
+    ``start_line`` — a comparison between two arbitrary sibling integers —
+    which remains runtime-only. Shared by :class:`ReviewedFile` and
+    :class:`FileFindingLocation`.
+    """
+    schema["allOf"] = [
+        {
+            "if": {
+                "properties": {"end_line": {"not": {"type": "null"}}},
+                "required": ["end_line"],
+            },
+            "then": {
+                "required": ["start_line"],
+                "properties": {"start_line": {"not": {"type": "null"}}},
+            },
+        },
+    ]
+
+
 class ReviewerIdentity(_ZadcModel):
     """Identity of the reviewer that produced a :class:`ReviewReport`.
 
@@ -89,7 +113,9 @@ class ReviewSubject(_ZadcModel):
     repository_id: GlobalId
     review_subject_sha: GitSha
     packet_digest: Sha256Digest
-    certification_manifest_ids: Annotated[tuple[GlobalId, ...], BeforeValidator(coerce_tuple)]
+    certification_manifest_ids: Annotated[tuple[GlobalId, ...], BeforeValidator(coerce_tuple)] = (
+        Field(json_schema_extra={"uniqueItems": True})
+    )
 
     @model_validator(mode="after")
     def _check_unique_manifest_ids(self) -> "ReviewSubject":
@@ -101,6 +127,8 @@ class ReviewSubject(_ZadcModel):
 
 class ReviewedFile(_ZadcModel):
     """One file (or file range) claimed as reviewed input."""
+
+    model_config = ConfigDict(json_schema_extra=_line_range_json_schema_extra)
 
     path: ConstrainedText
     start_line: Optional[PositiveInt] = None
@@ -127,6 +155,8 @@ class FileFindingLocation(_ZadcModel):
     (``artifact_id``, ``description``) via strict ``extra="forbid"``. Does
     not verify that the referenced file or line range exists.
     """
+
+    model_config = ConfigDict(json_schema_extra=_line_range_json_schema_extra)
 
     location_type: Literal["file"]
     path: ConstrainedText
@@ -225,6 +255,62 @@ class Finding(_ZadcModel):
         return self
 
 
+def _review_report_json_schema_extra(schema: dict[str, Any], model: type[BaseModel]) -> None:
+    """Model-owned hook surfacing the reviewer/producer actor-type match.
+
+    JSON Schema can express that a human reviewer requires a human envelope
+    producer, and an agent reviewer requires an agent producer — two
+    independent ``if``/``then`` blocks keyed on ``reviewer.actor_type``
+    (``ReviewerIdentity.actor_type`` is itself restricted to ``human``\\
+    |``agent``, so these two branches are exhaustive). It cannot express
+    that ``reviewer.actor_id`` equals ``producer.actor_id``, or that
+    ``independence.satisfied`` implies ``reviewer.actor_id !=
+    independence.executor_actor_id`` — those remain runtime-only
+    (arbitrary sibling-value equality/inequality), enforced by
+    ``ReviewReport._check_review_report_invariants``.
+    """
+    schema["allOf"] = [
+        {
+            "if": {
+                "properties": {
+                    "reviewer": {
+                        "properties": {"actor_type": {"const": "human"}},
+                        "required": ["actor_type"],
+                    }
+                },
+                "required": ["reviewer"],
+            },
+            "then": {
+                "properties": {
+                    "producer": {
+                        "properties": {"actor_type": {"const": "human"}},
+                        "required": ["actor_type"],
+                    }
+                }
+            },
+        },
+        {
+            "if": {
+                "properties": {
+                    "reviewer": {
+                        "properties": {"actor_type": {"const": "agent"}},
+                        "required": ["actor_type"],
+                    }
+                },
+                "required": ["reviewer"],
+            },
+            "then": {
+                "properties": {
+                    "producer": {
+                        "properties": {"actor_type": {"const": "agent"}},
+                        "required": ["actor_type"],
+                    }
+                }
+            },
+        },
+    ]
+
+
 class ReviewReport(ArtifactEnvelope):
     """A reviewer's structured judgment of an exact subject (architecture A2B1).
 
@@ -234,6 +320,8 @@ class ReviewReport(ArtifactEnvelope):
     reviewer independence. ``reviewer_recommendation`` is judgment only and
     must never be treated as merge authorization.
     """
+
+    model_config = ConfigDict(json_schema_extra=_review_report_json_schema_extra)
 
     artifact_type: Literal["review_report"]
 

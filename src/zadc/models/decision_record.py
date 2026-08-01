@@ -17,7 +17,7 @@ envelope producer (see :class:`DecisionRecord`).
 
 from typing import Annotated, Any, Literal, Optional
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, PositiveInt, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, PositiveInt, model_validator
 
 from zadc.models.common import ArtifactEnvelope, _ZadcModel
 from zadc.models.shared import ArtifactReference
@@ -65,8 +65,12 @@ class DecisionSubject(_ZadcModel):
     pull_request: PositiveInt
     decision_subject_sha: GitSha
     current_pr_head_sha_observed: GitSha
-    review_report_ids: Annotated[tuple[GlobalId, ...], BeforeValidator(coerce_tuple)]
-    certification_manifest_ids: Annotated[tuple[GlobalId, ...], BeforeValidator(coerce_tuple)]
+    review_report_ids: Annotated[tuple[GlobalId, ...], BeforeValidator(coerce_tuple)] = Field(
+        json_schema_extra={"uniqueItems": True}
+    )
+    certification_manifest_ids: Annotated[tuple[GlobalId, ...], BeforeValidator(coerce_tuple)] = (
+        Field(json_schema_extra={"uniqueItems": True})
+    )
 
     @model_validator(mode="after")
     def _check_unique_ids(self) -> "DecisionSubject":
@@ -108,9 +112,15 @@ def _decision_record_json_schema_extra(schema: dict[str, Any], model: type[BaseM
       be present and non-null, and every other decision requires it to be
       exactly ``null`` (two further independent ``if``/``then`` blocks).
 
-    It cannot express that ``supersedes_decision_ref.artifact_id`` differs
-    from this artifact's own ``artifact_id`` — that comparison has no
-    standard JSON Schema vocabulary and remains runtime-only, enforced by
+    It also unconditionally requires ``producer.actor_type == "human"`` —
+    the shared ``ProducerIdentity`` $def allows ``human``\\|``agent``\\|
+    ``ci``\\|``validator``\\|``service``, so this artifact-level
+    constraint narrows it without altering the shared definition used by
+    every other artifact. It cannot express that ``producer.actor_id``
+    equals ``decided_by.actor_id``, or that
+    ``supersedes_decision_ref.artifact_id`` differs from this artifact's
+    own ``artifact_id`` — those comparisons have no standard JSON Schema
+    vocabulary and remain runtime-only, enforced by
     ``DecisionRecord._check_decision_record_invariants``.
     """
     not_accept_risk = {
@@ -150,6 +160,14 @@ def _decision_record_json_schema_extra(schema: dict[str, Any], model: type[BaseM
         {
             "if": not_supersede,
             "then": {"properties": {"supersedes_decision_ref": {"type": "null"}}},
+        },
+        {
+            "properties": {
+                "producer": {
+                    "properties": {"actor_type": {"const": "human"}},
+                    "required": ["actor_type"],
+                }
+            }
         },
     ]
 

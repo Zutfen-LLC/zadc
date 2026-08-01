@@ -107,7 +107,8 @@
             "type": "string"
           },
           "title": "Certification Manifest Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "current_pr_head_sha_observed": {
           "pattern": "^[0-9a-f]{40}$",
@@ -161,7 +162,8 @@
             "type": "string"
           },
           "title": "Review Report Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         }
       },
       "required": [
@@ -474,6 +476,20 @@
           "supersedes_decision_ref": {
             "type": "null"
           }
+        }
+      }
+    },
+    {
+      "properties": {
+        "producer": {
+          "properties": {
+            "actor_type": {
+              "const": "human"
+            }
+          },
+          "required": [
+            "actor_type"
+          ]
         }
       }
     }

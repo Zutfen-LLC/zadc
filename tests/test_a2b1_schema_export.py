@@ -24,10 +24,11 @@ from jsonschema import Draft202012Validator, FormatChecker  # type: ignore[impor
 from pydantic import BaseModel
 
 from tests.a2b1_factories import DIGEST_C, build_decision_record, build_review_report
+from zadc import ProducerIdentity
 from zadc.canonical import canonical_json_text
 from zadc.digests import seal_artifact
 from zadc.models.decision_record import DecisionRecord
-from zadc.models.review_report import ReviewReport
+from zadc.models.review_report import ReviewerIdentity, ReviewReport
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
@@ -333,4 +334,157 @@ class TestDecisionRecordSchemaRejectsNestedInvalid:
         data = self._valid_data()
         data["subject"] = copy.deepcopy(data["subject"])
         data["subject"]["pull_request"] = -1
+        assert list(validator.iter_errors(data)) != []
+
+
+class TestReviewReportSchemaEnforcesReviewerProducerActorTypeMatch:
+    """MAJOR-1: the reviewer/producer actor-type match is schema-owned, not
+    just runtime-owned. Bypass the runtime model_validator by mutating the
+    raw dict directly, proving the *schema itself* rejects the mismatch."""
+
+    def _schema_validator(self) -> Draft202012Validator:
+        schema = json.loads((_SCHEMA_DIR / "review-report.schema.json").read_text())
+        return Draft202012Validator(schema, format_checker=FormatChecker())
+
+    def test_human_reviewer_with_agent_producer_rejected(self) -> None:
+        validator = self._schema_validator()
+        sealed = seal_artifact(build_review_report())
+        data = json.loads(canonical_json_text(sealed))
+        assert data["reviewer"]["actor_type"] == "human"
+        data["producer"] = {**data["producer"], "actor_type": "agent"}
+        assert list(validator.iter_errors(data)) != []
+
+    def test_agent_reviewer_with_human_producer_rejected(self) -> None:
+        validator = self._schema_validator()
+        agent_id = "zutfen:agent:claude"
+        review = build_review_report(
+            producer=ProducerIdentity(actor_type="agent", actor_id=agent_id),
+            reviewer=ReviewerIdentity(actor_type="agent", actor_id=agent_id),
+        )
+        sealed = seal_artifact(review)
+        data = json.loads(canonical_json_text(sealed))
+        assert data["reviewer"]["actor_type"] == "agent"
+        data["producer"] = {**data["producer"], "actor_type": "human"}
+        assert list(validator.iter_errors(data)) != []
+
+    def test_agent_reviewer_with_agent_producer_accepted(self) -> None:
+        """Sanity: the matching agent/agent combination the mismatch tests
+        are compared against is itself schema-valid."""
+        validator = self._schema_validator()
+        agent_id = "zutfen:agent:claude"
+        review = build_review_report(
+            producer=ProducerIdentity(actor_type="agent", actor_id=agent_id),
+            reviewer=ReviewerIdentity(actor_type="agent", actor_id=agent_id),
+        )
+        sealed = seal_artifact(review)
+        data = json.loads(canonical_json_text(sealed))
+        assert list(validator.iter_errors(data)) == []
+
+
+class TestDecisionRecordSchemaEnforcesHumanProducer:
+    """MAJOR-1: DecisionRecord.producer.actor_type == 'human' is
+    schema-owned. Bypass the runtime model_validator by mutating the raw
+    dict directly, proving the *schema itself* rejects a non-human
+    producer."""
+
+    def test_non_human_producer_rejected(self) -> None:
+        schema = json.loads((_SCHEMA_DIR / "decision-record.schema.json").read_text())
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        sealed = seal_artifact(build_decision_record())
+        data = json.loads(canonical_json_text(sealed))
+        assert data["producer"]["actor_type"] == "human"
+        data["producer"] = {**data["producer"], "actor_type": "agent"}
+        assert list(validator.iter_errors(data)) != []
+
+
+class TestLineRangePresenceGateSchemaOwned:
+    """MAJOR-2: ``end_line`` present-and-non-null requires ``start_line``
+    present-and-non-null, independently proven for both ReviewedFile (via
+    ``inputs_reviewed.files[]``) and FileFindingLocation (via
+    ``findings[].location``), and for the omitted vs. explicit-null cases
+    of ``start_line`` separately."""
+
+    def _schema_validator(self) -> Draft202012Validator:
+        schema = json.loads((_SCHEMA_DIR / "review-report.schema.json").read_text())
+        return Draft202012Validator(schema, format_checker=FormatChecker())
+
+    def _valid_data(self) -> dict[str, Any]:
+        sealed = seal_artifact(build_review_report())
+        return cast(dict[str, Any], json.loads(canonical_json_text(sealed)))
+
+    def test_reviewed_file_end_line_with_omitted_start_line_rejected(self) -> None:
+        validator = self._schema_validator()
+        data = self._valid_data()
+        data["inputs_reviewed"] = copy.deepcopy(data["inputs_reviewed"])
+        del data["inputs_reviewed"]["files"][0]["start_line"]
+        data["inputs_reviewed"]["files"][0]["end_line"] = 5
+        assert list(validator.iter_errors(data)) != []
+
+    def test_reviewed_file_end_line_with_null_start_line_rejected(self) -> None:
+        validator = self._schema_validator()
+        data = self._valid_data()
+        data["inputs_reviewed"] = copy.deepcopy(data["inputs_reviewed"])
+        data["inputs_reviewed"]["files"][0]["start_line"] = None
+        data["inputs_reviewed"]["files"][0]["end_line"] = 5
+        assert list(validator.iter_errors(data)) != []
+
+    def test_file_finding_location_end_line_with_omitted_start_line_rejected(self) -> None:
+        validator = self._schema_validator()
+        data = self._valid_data()
+        data["findings"][0] = copy.deepcopy(data["findings"][0])
+        location = {"location_type": "file", "path": "a.py", "end_line": 5}
+        data["findings"][0]["location"] = location
+        assert list(validator.iter_errors(data)) != []
+
+    def test_file_finding_location_end_line_with_null_start_line_rejected(self) -> None:
+        validator = self._schema_validator()
+        data = self._valid_data()
+        data["findings"][0] = copy.deepcopy(data["findings"][0])
+        location = {"location_type": "file", "path": "a.py", "start_line": None, "end_line": 5}
+        data["findings"][0]["location"] = location
+        assert list(validator.iter_errors(data)) != []
+
+    def test_end_line_with_present_start_line_still_accepted(self) -> None:
+        """The gate only fires when end_line is present and non-null."""
+        validator = self._schema_validator()
+        data = self._valid_data()
+        data["inputs_reviewed"] = copy.deepcopy(data["inputs_reviewed"])
+        data["inputs_reviewed"]["files"][0]["start_line"] = 1
+        data["inputs_reviewed"]["files"][0]["end_line"] = 5
+        assert list(validator.iter_errors(data)) == []
+
+
+class TestScalarIdArrayUniqueItemsSchemaOwned:
+    """MAJOR-2: scalar GlobalId array fields declare ``uniqueItems: true``
+    and independently reject duplicates at the schema level, for all three
+    named fields."""
+
+    def test_review_subject_certification_manifest_ids_duplicate_rejected(self) -> None:
+        schema = json.loads((_SCHEMA_DIR / "review-report.schema.json").read_text())
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        sealed = seal_artifact(build_review_report())
+        data = json.loads(canonical_json_text(sealed))
+        manifest_id = data["subject"]["certification_manifest_ids"][0]
+        data["subject"] = copy.deepcopy(data["subject"])
+        data["subject"]["certification_manifest_ids"] = [manifest_id, manifest_id]
+        assert list(validator.iter_errors(data)) != []
+
+    def test_decision_subject_review_report_ids_duplicate_rejected(self) -> None:
+        schema = json.loads((_SCHEMA_DIR / "decision-record.schema.json").read_text())
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        sealed = seal_artifact(build_decision_record())
+        data = json.loads(canonical_json_text(sealed))
+        review_id = data["subject"]["review_report_ids"][0]
+        data["subject"] = copy.deepcopy(data["subject"])
+        data["subject"]["review_report_ids"] = [review_id, review_id]
+        assert list(validator.iter_errors(data)) != []
+
+    def test_decision_subject_certification_manifest_ids_duplicate_rejected(self) -> None:
+        schema = json.loads((_SCHEMA_DIR / "decision-record.schema.json").read_text())
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        sealed = seal_artifact(build_decision_record())
+        data = json.loads(canonical_json_text(sealed))
+        manifest_id = data["subject"]["certification_manifest_ids"][0]
+        data["subject"] = copy.deepcopy(data["subject"])
+        data["subject"]["certification_manifest_ids"] = [manifest_id, manifest_id]
         assert list(validator.iter_errors(data)) != []

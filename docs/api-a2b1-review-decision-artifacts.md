@@ -48,9 +48,9 @@ A reviewer's structured judgment of an exact subject. Extends
 |---|---|---|
 | `packet_id` | `GlobalId` | |
 | `review_id` | `GlobalId` | must equal the envelope `artifact_id` |
-| `reviewer` | `ReviewerIdentity` | `actor_type` (`human`\|`agent`), `actor_id`, optional `run_id`/`model`/`provider`; must match the envelope `producer`'s `actor_type` and `actor_id` |
+| `reviewer` | `ReviewerIdentity` | `actor_type` (`human`\|`agent`), `actor_id`, optional `run_id`/`model`/`provider`; must match the envelope `producer`'s `actor_type` and `actor_id` (the `actor_type` half is schema-enforced; the `actor_id` half is runtime-only — see below) |
 | `independence` | `ReviewIndependence` | `executor_actor_id`, `satisfied`; when `satisfied` is `True`, `reviewer.actor_id` must differ from `executor_actor_id` |
-| `subject` | `ReviewSubject` | `repository_id`, `review_subject_sha`, `packet_digest`, `certification_manifest_ids` (duplicate-free) |
+| `subject` | `ReviewSubject` | `repository_id`, `review_subject_sha`, `packet_digest`, `certification_manifest_ids` (`uniqueItems: true`, schema-enforced) |
 | `inputs_reviewed` | `ReviewInputs` | `diffs: tuple[EvidenceReference, ...]`, `files: tuple[ReviewedFile, ...]`, `evidence_artifacts: tuple[ArtifactReference, ...]` |
 | `findings` | `tuple[Finding, ...]` | unique `finding_id` values |
 | `limitations` | `tuple[ConstrainedText, ...]` | |
@@ -68,9 +68,10 @@ A reviewer's structured judgment of an exact subject. Extends
   independence.
 - **`ReviewSubject`** — the claimed exact subject. Does not inspect Git,
   retrieve evidence, or prove the listed inputs were actually reviewed.
-- **`ReviewedFile`** — `path`, optional `start_line`/`end_line`. `end_line`
-  must not be present without `start_line`; when both are present,
-  `end_line` must not precede `start_line`.
+- **`ReviewedFile`** — `path`, optional `start_line`/`end_line`. A
+  present, non-null `end_line` requires `start_line` to be present and
+  non-null (schema-enforced); when both are present, `end_line` must not
+  precede `start_line` (runtime-only — see below).
 - **`ReviewInputs`** — the diffs, files, and evidence artifacts a review
   claims to cover.
 - **`Finding`** — `finding_id` (`StableId`), `severity` (`FindingSeverity`),
@@ -108,7 +109,7 @@ An authenticated human decision claim. Extends `ArtifactEnvelope` with
 | Field | Type | Notes |
 |---|---|---|
 | `decision_id` | `GlobalId` | must equal the envelope `artifact_id` |
-| `decided_by` | `HumanDecisionIdentity` | `actor_type="human"`, `actor_id`; the envelope `producer` must have `actor_type="human"` and `actor_id` equal to `decided_by.actor_id` |
+| `decided_by` | `HumanDecisionIdentity` | `actor_type="human"`, `actor_id`; the envelope `producer` must have `actor_type="human"` (schema-enforced) and `actor_id` equal to `decided_by.actor_id` (runtime-only) |
 | `decided_at` | `Timestamp` | |
 | `subject` | `DecisionSubject` | see below |
 | `decision` | `DecisionType` | |
@@ -125,10 +126,11 @@ An authenticated human decision claim. Extends `ArtifactEnvelope` with
   slice.
 - **`DecisionSubject`** — `repository_id`, `pull_request` (`PositiveInt`),
   `decision_subject_sha`, `current_pr_head_sha_observed`,
-  `review_report_ids` (duplicate-free `tuple[GlobalId, ...]`),
-  `certification_manifest_ids` (duplicate-free). `decision_subject_sha`
-  and `current_pr_head_sha_observed` are **not** required to match at
-  construction — freshness and live-head reconciliation are deferred.
+  `review_report_ids` (`uniqueItems: true`, schema-enforced),
+  `certification_manifest_ids` (`uniqueItems: true`, schema-enforced).
+  `decision_subject_sha` and `current_pr_head_sha_observed` are **not**
+  required to match at construction — freshness and live-head
+  reconciliation are deferred.
 - **`AcceptedRisk`** — `finding_id` (`StableId`), `rationale`, `scope`,
   optional `expires_at`. When present, `expires_at` must be later than the
   enclosing `DecisionRecord.decided_at` (enforced by `DecisionRecord`,
@@ -143,10 +145,10 @@ repository state.
 ## Schema-expressible invariants
 
 The following conditional gates are model-owned and appear in the
-generated JSON Schema as `allOf`/`if`/`then` blocks — independently
-verified against the raw schema in `tests/test_a2b1_schema_export.py`,
-proving both the missing-field and explicit-`null` cases separately where
-applicable:
+generated JSON Schema as `allOf`/`if`/`then` blocks (or `uniqueItems`) —
+independently verified against the raw schema in
+`tests/test_a2b1_schema_export.py`, proving both the missing-field and
+explicit-`null` cases separately where applicable:
 
 - **`Finding`**: `status="resolved"` → `resolution_refs` has `minItems: 1`
   (one `if`/`then` block); `status="accepted_risk"` → `resolution_refs` has
@@ -157,6 +159,29 @@ applicable:
   `required` and `"not": {"type": "null"}`; every other `decision` →
   `supersedes_decision_ref` has `"type": "null"`. Each of these four
   conditions is its own independent `if`/`then` block.
+- **`DecisionRecord.producer.actor_type`**: unconditionally constrained to
+  `const: "human"` at the artifact level. The shared `ProducerIdentity`
+  `$def` still allows all five `ActorType` values (unmodified, so every
+  other artifact referencing it is unaffected) — this narrowing is added
+  as an artifact-level `allOf` entry that further restricts the
+  `producer` property already `$ref`-erenced elsewhere in the schema.
+- **`ReviewReport.reviewer`/`producer.actor_type` match**: two independent
+  `if`/`then` blocks — `reviewer.actor_type="human"` → `producer.actor_type`
+  is `const: "human"`; `reviewer.actor_type="agent"` → `producer.actor_type`
+  is `const: "agent"` (`ReviewerIdentity.actor_type` is itself restricted
+  to `human`\|`agent`, so these two branches are exhaustive). Applied the
+  same way as the `DecisionRecord.producer` narrowing above — the shared
+  `ProducerIdentity` `$def` is untouched.
+- **`ReviewedFile`** and **`FileFindingLocation`**: a present, non-null
+  `end_line` requires `start_line` to be `required` and
+  `"not": {"type": "null"}` (one `if`/`then` block per model, sharing the
+  same hook function).
+- **Scalar `GlobalId` array uniqueness**: `ReviewSubject.certification_manifest_ids`,
+  `DecisionSubject.review_report_ids`, and
+  `DecisionSubject.certification_manifest_ids` each declare
+  `uniqueItems: true` — unlike uniqueness of a field *within* array items
+  (e.g. `findings[].finding_id`), uniqueness of a scalar-string array is
+  exactly what JSON Schema's `uniqueItems` supports.
 
 ## Runtime-only invariants
 
@@ -167,17 +192,20 @@ vocabulary and are enforced only by the Python models' `model_validator`s
 **Comparisons between two arbitrary sibling or cross-object values:**
 
 - `ReviewReport.review_id` must equal the envelope `artifact_id`.
-- `ReviewReport.reviewer.actor_id`/`actor_type` must match the envelope
-  `producer`'s `actor_id`/`actor_type`.
+- `ReviewReport.reviewer.actor_id` must match the envelope `producer`'s
+  `actor_id` (the `actor_type` half of this match is schema-enforced —
+  see above; the `actor_id` half is an equality between two arbitrary
+  `GlobalId` values, which has no standard JSON Schema vocabulary).
 - `ReviewReport.independence.satisfied=True` requires
   `reviewer.actor_id != independence.executor_actor_id`.
 - `ReviewedFile`/`FileFindingLocation`: `end_line` must not precede
-  `start_line` (the *presence* dependency — `end_line` requires
-  `start_line` — is a simple single-field check with no schema hook
-  attached in this slice; both halves are runtime-only here).
+  `start_line` — an ordering comparison between two arbitrary sibling
+  integers (the *presence* dependency is schema-enforced — see above).
 - `DecisionRecord.decision_id` must equal the envelope `artifact_id`.
-- `DecisionRecord`: the envelope `producer` must have `actor_type="human"`
-  and `actor_id` equal to `decided_by.actor_id`.
+- `DecisionRecord.producer.actor_id` must equal `decided_by.actor_id`
+  (the `producer.actor_type="human"` half of this check is
+  schema-enforced — see above; the `actor_id` half is an equality between
+  two arbitrary `GlobalId` values).
 - `DecisionRecord.supersedes_decision_ref.artifact_id` must not equal this
   artifact's own `artifact_id`.
 - `AcceptedRisk.expires_at` must be later than the enclosing
@@ -185,13 +213,12 @@ vocabulary and are enforced only by the Python models' `model_validator`s
   different, enclosing object. Expiration ordering is runtime-only and
   unavailable to standard JSON Schema.
 
-**Cross-item uniqueness by field** (JSON Schema's `uniqueItems` compares
-whole array items, not a single field within each item):
+**Cross-item uniqueness by a field nested inside array items** (JSON
+Schema's `uniqueItems` compares whole array items, not a single field
+within each item — this is distinct from the scalar-array uniqueness
+listed as schema-expressible above):
 
-- `ReviewSubject.certification_manifest_ids` must be duplicate-free.
 - `ReviewReport.findings[].finding_id` must be unique across the report.
-- `DecisionSubject.review_report_ids` and `.certification_manifest_ids`
-  must each be duplicate-free.
 - `DecisionRecord.accepted_risks[].finding_id` must be unique within the
   decision record.
 

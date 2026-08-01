@@ -134,6 +134,34 @@
     },
     "FileFindingLocation": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "end_line": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            },
+            "required": [
+              "end_line"
+            ]
+          },
+          "then": {
+            "properties": {
+              "start_line": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            },
+            "required": [
+              "start_line"
+            ]
+          }
+        }
+      ],
       "description": "A finding location anchored to a file (and optional line range).\n\nRejects fields belonging only to another location variant\n(``artifact_id``, ``description``) via strict ``extra=\"forbid\"``. Does\nnot verify that the referenced file or line range exists.",
       "properties": {
         "end_line": {
@@ -598,7 +626,8 @@
             "type": "string"
           },
           "title": "Certification Manifest Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "packet_digest": {
           "pattern": "^sha256:[0-9a-f]{64}$",
@@ -640,6 +669,34 @@
     },
     "ReviewedFile": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "end_line": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            },
+            "required": [
+              "end_line"
+            ]
+          },
+          "then": {
+            "properties": {
+              "start_line": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            },
+            "required": [
+              "start_line"
+            ]
+          }
+        }
+      ],
       "description": "One file (or file range) claimed as reviewed input.",
       "properties": {
         "end_line": {
@@ -777,6 +834,74 @@
   "$id": "https://schemas.zutfen.com/zadc/0.1/review-report.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "reviewer": {
+            "properties": {
+              "actor_type": {
+                "const": "human"
+              }
+            },
+            "required": [
+              "actor_type"
+            ]
+          }
+        },
+        "required": [
+          "reviewer"
+        ]
+      },
+      "then": {
+        "properties": {
+          "producer": {
+            "properties": {
+              "actor_type": {
+                "const": "human"
+              }
+            },
+            "required": [
+              "actor_type"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "reviewer": {
+            "properties": {
+              "actor_type": {
+                "const": "agent"
+              }
+            },
+            "required": [
+              "actor_type"
+            ]
+          }
+        },
+        "required": [
+          "reviewer"
+        ]
+      },
+      "then": {
+        "properties": {
+          "producer": {
+            "properties": {
+              "actor_type": {
+                "const": "agent"
+              }
+            },
+            "required": [
+              "actor_type"
+            ]
+          }
+        }
+      }
+    }
+  ],
   "description": "A reviewer's structured judgment of an exact subject for the Zutfen Agentic Development Contract v0.1 (architecture section A2B1). Records reviewer judgment; it does not authenticate reviewer identity, prove independence, or confer merge authorization.",
   "properties": {
     "artifact_id": {
