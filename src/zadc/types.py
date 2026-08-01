@@ -52,7 +52,7 @@ import unicodedata
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Annotated, Any, Literal, cast
 
-from pydantic import AfterValidator, StringConstraints
+from pydantic import AfterValidator, BeforeValidator, PlainSerializer, StringConstraints
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema
 
@@ -569,6 +569,271 @@ GitSha = Annotated[
 ]
 
 
+# ---------------------------------------------------------------------------
+# Reusable timestamp type (A2A-02) — shared by nested artifact timestamps
+# ---------------------------------------------------------------------------
+
+
+def coerce_timestamp(value: object) -> datetime:
+    """Coerce and validate a value as a ZADC Timestamp v0.1 UTC datetime.
+
+    Accepts a timezone-aware ``datetime`` or a ZADC Timestamp v0.1 string.
+    Shared by ``ArtifactEnvelope.created_at`` and the reusable ``Timestamp``
+    field type so every nested artifact timestamp enforces the identical
+    grammar, calendar validity, and UTC normalization as the envelope.
+    """
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            raise ValueError("timestamp must be timezone-aware")
+        return value.astimezone(UTC)
+    if isinstance(value, str):
+        validate_timestamp(value)
+        return normalize_timestamp_to_utc(value)
+    raise TypeError(
+        f"timestamp must be a timezone-aware datetime or ZADC Timestamp v0.1 string, "
+        f"not {type(value).__name__}"
+    )
+
+
+def serialize_timestamp(value: datetime) -> str:
+    """Serialize a UTC datetime as ZADC Timestamp v0.1 text (uppercase Z)."""
+    utc_dt = value.astimezone(UTC)
+    return utc_dt.isoformat().replace("+00:00", "Z")
+
+
+#: Reusable ZADC Timestamp v0.1 field type for nested artifact timestamps.
+#: Enforces the identical grammar, calendar validity, UTC normalization,
+#: and uppercase-Z serialization as ``ArtifactEnvelope.created_at`` without
+#: altering that field's own validator.
+Timestamp = Annotated[
+    datetime,
+    TimestampField,
+    BeforeValidator(coerce_timestamp),
+    PlainSerializer(serialize_timestamp, return_type=str),
+]
+
+
+# ---------------------------------------------------------------------------
+# Shared contract enums (A2A-03)
+# ---------------------------------------------------------------------------
+
+#: Epistemic status of a material claim (architecture section 12).
+EpistemicStatus = Literal[
+    "PROPOSED",
+    "AGENT_REPORTED",
+    "LOCALLY_OBSERVED",
+    "CI_OBSERVED",
+    "LIVE_SOURCE_OBSERVED",
+    "INDEPENDENTLY_REPRODUCED",
+    "VERIFIED",
+    "CONTRADICTED",
+    "STALE",
+    "SUPERSEDED",
+]
+
+#: Packet policy for handling a work-start SHA mismatch.
+MismatchPolicy = Literal["abort", "reconcile_with_record"]
+
+#: Packet policy for the exact subject a verification run must target.
+ExactSubjectPolicy = Literal["final_pr_head", "certified_code_with_evidence_tail"]
+
+#: Review finding severity levels.
+FindingSeverity = Literal["blocker", "major", "minor", "note"]
+
+#: Execution agent's self-reported recommendation in a completion report.
+ExecutorRecommendation = Literal["green_for_review", "red", "blocked", "inconclusive"]
+
+#: The kind of exact commit subject a verification or evidence artifact targets.
+SubjectKind = Literal["commit", "pr_head", "synthetic_merge", "merge_commit"]
+
+#: Whether a verification lane is required (mandatory) or informational (advisory).
+LaneClassification = Literal["mandatory", "advisory"]
+
+#: The outcome of one verification lane run.
+LaneConclusion = Literal["pass", "fail", "skipped", "cancelled", "timed_out", "unavailable"]
+
+#: The overall result of a certification manifest.
+CertificationResult = Literal["pass", "fail", "inconclusive"]
+
+#: Whether a referenced evidence payload is currently retrievable.
+EvidenceAvailability = Literal["available", "unavailable"]
+
+#: The kind of live system an observation was sourced from.
+ObservationSourceType = Literal["git", "github", "ci", "deployment", "billing", "service", "other"]
+
+
+# ---------------------------------------------------------------------------
+# Reusable constrained text helpers (A2A-01)
+# ---------------------------------------------------------------------------
+
+
+def _reject_disallowed_control_chars(value: str) -> None:
+    """Reject Unicode category C characters except internal newline and tab.
+
+    Used for free-form prose fields that may legitimately span multiple
+    lines but must not carry other control, format, surrogate, private-use,
+    or unassigned characters.
+    """
+    for ch in value:
+        if ch in ("\n", "\t"):
+            continue
+        cat = unicodedata.category(ch)
+        if cat.startswith("C"):
+            raise ValueError(
+                f"text contains disallowed Unicode category {cat} character: U+{ord(ch):04X}"
+            )
+
+
+def validate_constrained_text(value: str) -> str:
+    """Validate a general-purpose bounded prose text field.
+
+    MUST be non-empty after stripping surrounding whitespace, MUST NOT
+    carry leading/trailing whitespace, and MUST NOT contain control,
+    format, surrogate, private-use, or unassigned Unicode characters
+    other than internal newline/tab.
+    """
+    if not isinstance(value, str):
+        raise TypeError("text field must be a string")
+    if not value or not value.strip():
+        raise ValueError("text field must not be empty or whitespace-only")
+    if value != value.strip():
+        raise ValueError("text field must not have leading/trailing whitespace")
+    _reject_disallowed_control_chars(value)
+    return value
+
+
+#: Reusable bounded prose text type (statements, rationale, descriptions,
+#: path/operation entries). Shared across every A2A model requiring a
+#: constrained free-text field, instead of a per-model validator.
+ConstrainedText = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=20000),
+    AfterValidator(validate_constrained_text),
+]
+
+
+#: Grammar for stable, human-assigned identifiers (requirement/lane IDs).
+_STABLE_ID_PATTERN = r"^[A-Za-z0-9](?:[A-Za-z0-9._\-]*[A-Za-z0-9])?$"
+_STABLE_ID_RE = re.compile(_STABLE_ID_PATTERN)
+
+
+def validate_stable_id(value: str) -> str:
+    """Validate a stable, human-assigned identifier (e.g. requirement or lane ID).
+
+    MUST be non-empty ASCII alphanumerics, dot, underscore, or hyphen,
+    starting and ending with an alphanumeric character.
+    """
+    if not isinstance(value, str):
+        raise TypeError("stable identifier must be a string")
+    if not value:
+        raise ValueError("stable identifier must not be empty")
+    _reject_unicode_category_c(value)
+    if not _STABLE_ID_RE.fullmatch(value):
+        raise ValueError(
+            f"stable identifier must match [A-Za-z0-9._-]+ grammar "
+            f"(alphanumeric start/end): {value!r}"
+        )
+    return value
+
+
+#: Reusable stable-identifier type (requirement IDs, lane IDs).
+StableId = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=256, pattern=_STABLE_ID_PATTERN),
+    AfterValidator(validate_stable_id),
+]
+
+
+#: Simplified RFC 6838 media (MIME) type grammar: ``type/subtype``.
+_MEDIA_TYPE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9!#$&\-\^_.+]*/[A-Za-z0-9][A-Za-z0-9!#$&\-\^_.+]*$"
+_MEDIA_TYPE_RE = re.compile(_MEDIA_TYPE_PATTERN)
+
+
+def validate_media_type(value: str) -> str:
+    """Validate an RFC 6838-shaped media (MIME) type: ``type/subtype``."""
+    if not isinstance(value, str):
+        raise TypeError("media type must be a string")
+    if not _MEDIA_TYPE_RE.fullmatch(value):
+        raise ValueError(f"media type must match 'type/subtype' grammar: {value!r}")
+    return value
+
+
+#: Reusable media (MIME) type for evidence payload descriptors.
+MediaType = Annotated[
+    str,
+    StringConstraints(min_length=3, max_length=255, pattern=_MEDIA_TYPE_PATTERN),
+    AfterValidator(validate_media_type),
+]
+
+
+#: Grammar for a single GitHub owner or repository name segment.
+_GITHUB_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._\-]*$"
+_GITHUB_NAME_RE = re.compile(_GITHUB_NAME_PATTERN)
+
+
+def validate_github_name(value: str) -> str:
+    """Validate a GitHub owner or repository name segment."""
+    if not isinstance(value, str):
+        raise TypeError("GitHub name must be a string")
+    if not _GITHUB_NAME_RE.fullmatch(value):
+        raise ValueError(
+            f"GitHub name must be alphanumeric with '.', '_', '-' (no leading separator): {value!r}"
+        )
+    return value
+
+
+#: Reusable GitHub owner/repository name segment type.
+GitHubName = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=100, pattern=_GITHUB_NAME_PATTERN),
+    AfterValidator(validate_github_name),
+]
+
+
+#: Grammar for a Git ref/branch name (permits internal ``/``).
+_REF_NAME_PATTERN = r"^[A-Za-z0-9](?:[A-Za-z0-9._\-/]*[A-Za-z0-9])?$"
+_REF_NAME_RE = re.compile(_REF_NAME_PATTERN)
+
+
+def validate_ref_name(value: str) -> str:
+    """Validate a Git ref/branch name (permits internal ``/``)."""
+    if not isinstance(value, str):
+        raise TypeError("ref name must be a string")
+    if not _REF_NAME_RE.fullmatch(value):
+        raise ValueError(
+            f"ref name must be alphanumeric with '.', '_', '-', '/' "
+            f"(alphanumeric start/end): {value!r}"
+        )
+    return value
+
+
+#: Reusable Git ref/branch name type.
+RefName = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=255, pattern=_REF_NAME_PATTERN),
+    AfterValidator(validate_ref_name),
+]
+
+
+# ---------------------------------------------------------------------------
+# Immutable sequence helper (A2A-01)
+# ---------------------------------------------------------------------------
+
+
+def coerce_tuple(value: object) -> object:
+    """Accept list or tuple input and normalize to tuple (before-validator).
+
+    Reused across every model field that stores an immutable ordered
+    collection, so JSON-array inputs and Python list/tuple inputs both
+    normalize identically without duplicating a validator per model.
+    Non-list/tuple input is passed through unchanged so Pydantic's own
+    type-checking reports the appropriate error.
+    """
+    if isinstance(value, list):
+        return tuple(value)
+    return value
+
+
 __all__ = [
     "CONTRACT_VERSION",
     "SCHEMA_ID",
@@ -583,10 +848,37 @@ __all__ = [
     "GitSha",
     "SchemaUriLiteral",
     "TimestampField",
+    "Timestamp",
     "validate_global_id",
     "validate_slice_id",
     "validate_sha256_digest",
     "validate_git_sha",
     "validate_timestamp",
     "normalize_timestamp_to_utc",
+    "coerce_timestamp",
+    "serialize_timestamp",
+    "coerce_tuple",
+    # Shared contract enums (A2A-03)
+    "EpistemicStatus",
+    "MismatchPolicy",
+    "ExactSubjectPolicy",
+    "FindingSeverity",
+    "ExecutorRecommendation",
+    "SubjectKind",
+    "LaneClassification",
+    "LaneConclusion",
+    "CertificationResult",
+    "EvidenceAvailability",
+    "ObservationSourceType",
+    # Reusable constrained text helpers (A2A-01)
+    "ConstrainedText",
+    "StableId",
+    "MediaType",
+    "GitHubName",
+    "RefName",
+    "validate_constrained_text",
+    "validate_stable_id",
+    "validate_media_type",
+    "validate_github_name",
+    "validate_ref_name",
 ]

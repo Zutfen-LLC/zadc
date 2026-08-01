@@ -11,10 +11,18 @@ ZADC (Zutfen Agentic Development Contract) is a vendor-neutral,
 machine-readable contract for governing evidence-backed, human-authorized
 AI-assisted software development.
 
-This repository contains the open contract specification and a minimal
-installable Python foundation. The contract artifact model, schemas,
-validators, lifecycle state, adapters, and integrations are **not yet
-implemented** and are intentionally deferred to subsequent work slices.
+This repository contains the open contract specification and a Python
+foundation with the first concrete canonical artifact models: **Packet**,
+**CompletionReport**, **CertificationManifest**, **EvidenceArtifact**, and
+**Observation** — each strict, frozen, deterministically canonicalized,
+digest-sealed, and backed by a generated JSON Schema. See
+[docs/api-a1-foundation.md](docs/api-a1-foundation.md) and
+[docs/api-a2a-execution-evidence-artifacts.md](docs/api-a2a-execution-evidence-artifacts.md).
+
+Lifecycle state derivation, policy evaluation, review/decision artifacts,
+Git/GitHub reconciliation, consumer-specific renderers, and Engram/Flowstate
+integration are **not yet implemented** and are intentionally deferred to
+subsequent work slices.
 
 ## Identity
 

@@ -20,10 +20,15 @@ Public API:
 
 import hashlib
 import hmac
+from typing import TypeVar
 
 from zadc.canonical import canonical_json_bytes
 from zadc.errors import DigestMismatchError, DigestMissingError
 from zadc.models.common import ArtifactEnvelope
+
+#: Bound TypeVar so ``seal_artifact`` preserves the exact concrete runtime
+#: class of its argument (e.g. ``seal_artifact(packet) -> Packet``).
+_EnvelopeT = TypeVar("_EnvelopeT", bound=ArtifactEnvelope)
 
 
 def _envelope_to_digest_input(envelope: ArtifactEnvelope) -> bytes:
@@ -79,22 +84,29 @@ def compute_content_digest(envelope: ArtifactEnvelope) -> str:
     return f"sha256:{digest_hex}"
 
 
-def seal_artifact(envelope: ArtifactEnvelope) -> ArtifactEnvelope:
+def seal_artifact(envelope: _EnvelopeT) -> _EnvelopeT:
     """Return a new validated envelope with the content digest set.
 
     Uses validated reconstruction: the full envelope payload is dumped,
     the digest is inserted, and the result is re-validated via
     ``model_validate``. This prevents unvalidated nested mutations.
 
+    Reconstruction uses ``type(envelope).model_validate`` rather than a
+    hard-coded ``ArtifactEnvelope.model_validate``, so the exact concrete
+    runtime class (e.g. ``Packet``, ``CompletionReport``) — and every one
+    of its body fields — is preserved. Sealing a bare ``ArtifactEnvelope``
+    still returns a bare ``ArtifactEnvelope``, unchanged from prior
+    behavior.
+
     The input envelope is never mutated. Re-sealing an unmodified
     sealed envelope produces the same digest (idempotent).
 
     Args:
-        envelope: An :class:`ArtifactEnvelope` instance.
+        envelope: An :class:`ArtifactEnvelope` instance (or subclass).
 
     Returns:
-        A new validated :class:`ArtifactEnvelope` with ``content_digest``
-        populated.
+        A new validated instance of ``type(envelope)`` with
+        ``content_digest`` populated.
     """
     digest = compute_content_digest(envelope)
     # Validated reconstruction: dump, insert digest, re-validate.
@@ -106,7 +118,7 @@ def seal_artifact(envelope: ArtifactEnvelope) -> ArtifactEnvelope:
         exclude_unset=False,
     )
     data["provenance"]["content_digest"] = digest
-    return ArtifactEnvelope.model_validate(data)
+    return type(envelope).model_validate(data)
 
 
 def verify_content_digest(

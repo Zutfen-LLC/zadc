@@ -16,7 +16,7 @@ FIX2 corrections:
   FormatChecker + explicit pattern).
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated, Literal, Optional
 
 from pydantic import (
@@ -37,8 +37,8 @@ from zadc.types import (
     Sha256Digest,
     SliceId,
     TimestampField,
-    normalize_timestamp_to_utc,
-    validate_timestamp,
+    coerce_timestamp,
+    serialize_timestamp,
 )
 
 
@@ -157,27 +157,18 @@ class ArtifactEnvelope(_ZadcModel):
         digits, leap seconds (:60), and -00:00.
 
         Rejects int, float, Decimal, bool, bytes, naive datetime, and date.
+
+        Delegates to the shared ``coerce_timestamp`` helper (A2A-02) so
+        nested artifact timestamps enforce byte-identical behavior; this
+        delegation is a pure refactor and does not alter the validation
+        outcome for any input.
         """
-        if isinstance(v, datetime):
-            if v.tzinfo is None:
-                raise ValueError("created_at must be timezone-aware")
-            return v.astimezone(UTC)
-        if isinstance(v, str):
-            # Step 1: Validate exact ZADC Timestamp v0.1 grammar.
-            validate_timestamp(v)
-            # Step 2: Parse deterministically (no fromisoformat).
-            return normalize_timestamp_to_utc(v)
-        # Reject all other types — no coercion of int/float/bool/etc.
-        raise TypeError(
-            f"created_at must be a timezone-aware datetime or ZADC Timestamp v0.1 string, "
-            f"not {type(v).__name__}"
-        )
+        return coerce_timestamp(v)
 
     @field_serializer("created_at")
     def _serialize_created_at(self, v: datetime) -> str:
         """Serialize datetime as UTC RFC 3339 with uppercase Z."""
-        utc_dt = v.astimezone(UTC)
-        return utc_dt.isoformat().replace("+00:00", "Z")
+        return serialize_timestamp(v)
 
 
 __all__ = [
