@@ -35,6 +35,13 @@ source is a Pydantic ``TypeAdapter`` rather than a ``BaseModel`` subclass.
 generation method (``BaseModel.model_json_schema()`` or
 ``TypeAdapter.json_schema()``); the exporter's mutation surface is
 otherwise unchanged.
+
+A3A: The spec list gained an eleventh entry — ``RenderedView``, the
+non-authoritative projection record. Its schema source is the
+``RenderedView`` ``BaseModel`` subclass, and the exporter's mutation
+surface remains limited to document metadata and deterministic key
+ordering. ``RenderedView`` is exported as its own schema file and is NOT
+added to ``zadc-artifact.schema.json``.
 """
 
 import argparse
@@ -62,6 +69,10 @@ from zadc.models.observation import Observation  # noqa: E402
 from zadc.models.packet import Packet  # noqa: E402
 from zadc.models.review_report import ReviewReport  # noqa: E402
 from zadc.models.workflow_bundle import WorkflowBundle  # noqa: E402
+from zadc.rendering.models import (  # noqa: E402
+    RENDERED_VIEW_SCHEMA_ID,
+    RenderedView,
+)
 from zadc.types import SCHEMA_ID  # noqa: E402
 
 #: Base URL for the per-model $id of every A2A concrete-artifact schema.
@@ -225,6 +236,23 @@ _SCHEMA_SPECS: tuple[_SchemaSpec, ...] = (
             "Agentic Development Contract v0.1 (architecture section A2B2). "
             "Dispatches each payload to its exact concrete artifact schema "
             "by its artifact_type discriminator."
+        ),
+    ),
+    _SchemaSpec(
+        model=RenderedView,
+        filename="rendered-view.schema.json",
+        schema_id=RENDERED_VIEW_SCHEMA_ID,
+        title="ZADC Rendered View",
+        description=(
+            "A non-authoritative projection of one verified sealed canonical "
+            "ZADC v0.1 artifact for the Zutfen Agentic Development Contract "
+            "v0.1 (architecture section 8.16, slice A3A). Carries the "
+            "verified source artifact ID and content digest, copied source "
+            "metadata, and rendered content. It is not a canonical artifact: "
+            "it has no artifact identity, content digest, producer, "
+            "authority, approval, or lifecycle state of its own. The "
+            "rendered_at >= source_created_at chronology invariant is "
+            "runtime-only and is not expressed in this schema."
         ),
     ),
 )

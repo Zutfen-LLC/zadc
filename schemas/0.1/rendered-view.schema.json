@@ -1,0 +1,248 @@
+{
+  "$defs": {
+    "ArtifactReference": {
+      "additionalProperties": false,
+      "description": "A reference to another canonical ZADC artifact by ID and content digest.\n\nDistinct from :class:`EvidenceReference`, which points at an external,\nnon-ZADC evidence payload rather than another sealed ZADC artifact.",
+      "properties": {
+        "artifact_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "content_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Content Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "content_digest"
+      ],
+      "title": "ArtifactReference",
+      "type": "object"
+    },
+    "PolicyReference": {
+      "additionalProperties": false,
+      "description": "Reference to the policy governing an artifact.\n\nFields (architecture section 10, ``policy``):\n- ``policy_id``: the policy identifier (e.g. ``zutfen:zadc-policy:standard@0.1.0``).\n- ``policy_source_sha``: the trusted commit SHA the policy was loaded from.\n- ``policy_digest``: the SHA-256 digest of the policy content.",
+      "properties": {
+        "policy_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Policy Digest",
+          "type": "string"
+        },
+        "policy_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "policy_source_sha": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Policy Source Sha",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "policy_source_sha",
+        "policy_digest"
+      ],
+      "title": "PolicyReference",
+      "type": "object"
+    },
+    "RendererReference": {
+      "additionalProperties": false,
+      "description": "Stable, explicit identity for one renderer implementation.\n\nUsed by every :class:`RenderedView` to record which renderer produced its\ncontent, so a consumer can independently judge whether to trust a given\nprojection's presentation. The default renderers use:\n\n- ``zadc-human-markdown @ 0.1.0``\n- ``zadc-ci-json @ 0.1.0``",
+      "properties": {
+        "renderer_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._\\-]*[A-Za-z0-9])?$",
+          "title": "Renderer Id",
+          "type": "string"
+        },
+        "renderer_version": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._\\-]*[A-Za-z0-9])?$",
+          "title": "Renderer Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "renderer_id",
+        "renderer_version"
+      ],
+      "title": "RendererReference",
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.zutfen.com/zadc/0.1/rendered-view.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A non-authoritative projection of one verified sealed canonical ZADC v0.1 artifact for the Zutfen Agentic Development Contract v0.1 (architecture section 8.16, slice A3A). Carries the verified source artifact ID and content digest, copied source metadata, and rendered content. It is not a canonical artifact: it has no artifact identity, content digest, producer, authority, approval, or lifecycle state of its own. The rendered_at >= source_created_at chronology invariant is runtime-only and is not expressed in this schema.",
+  "properties": {
+    "consumer": {
+      "enum": [
+        "human",
+        "ci",
+        "hermes",
+        "codex",
+        "claude"
+      ],
+      "title": "Consumer",
+      "type": "string"
+    },
+    "content": {
+      "minLength": 1,
+      "title": "Content",
+      "type": "string"
+    },
+    "media_type": {
+      "maxLength": 255,
+      "minLength": 3,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9!#$&\\-\\^_.+]*/[A-Za-z0-9][A-Za-z0-9!#$&\\-\\^_.+]*$",
+      "title": "Media Type",
+      "type": "string"
+    },
+    "non_authoritative": {
+      "const": true,
+      "title": "Non Authoritative",
+      "type": "boolean"
+    },
+    "rendered_at": {
+      "format": "date-time",
+      "not": {
+        "pattern": "^.*-00:00$"
+      },
+      "pattern": "^(?!0000)[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$",
+      "title": "Rendered At",
+      "type": "string"
+    },
+    "renderer": {
+      "$ref": "#/$defs/RendererReference"
+    },
+    "schema": {
+      "const": "https://schemas.zutfen.com/zadc/0.1/rendered-view.schema.json",
+      "title": "Schema",
+      "type": "string"
+    },
+    "source_artifact_type": {
+      "enum": [
+        "packet",
+        "completion_report",
+        "certification_manifest",
+        "review_report",
+        "decision_record",
+        "workflow_bundle",
+        "evidence_artifact",
+        "observation"
+      ],
+      "title": "Source Artifact Type",
+      "type": "string"
+    },
+    "source_contract_version": {
+      "const": "0.1.0",
+      "title": "Source Contract Version",
+      "type": "string"
+    },
+    "source_created_at": {
+      "format": "date-time",
+      "not": {
+        "pattern": "^.*-00:00$"
+      },
+      "pattern": "^(?!0000)[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$",
+      "title": "Source Created At",
+      "type": "string"
+    },
+    "source_policy": {
+      "$ref": "#/$defs/PolicyReference"
+    },
+    "source_project_id": {
+      "allOf": [
+        {
+          "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+        },
+        {
+          "if": {
+            "pattern": "^urn:[uU][uU][iI][dD]:"
+          },
+          "then": {
+            "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        }
+      ],
+      "minLength": 1,
+      "title": "Source Project Id",
+      "type": "string"
+    },
+    "source_ref": {
+      "$ref": "#/$defs/ArtifactReference"
+    },
+    "source_slice_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Z0-9]([A-Z0-9\\-]*[A-Z0-9])?$",
+      "title": "Source Slice Id",
+      "type": "string"
+    },
+    "source_slice_instance_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Z0-9]([A-Z0-9\\-]*[A-Z0-9])?$",
+      "title": "Source Slice Instance Id",
+      "type": "string"
+    },
+    "view_version": {
+      "const": "0.1.0",
+      "title": "View Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "view_version",
+    "non_authoritative",
+    "consumer",
+    "media_type",
+    "renderer",
+    "rendered_at",
+    "source_ref",
+    "source_artifact_type",
+    "source_contract_version",
+    "source_created_at",
+    "source_project_id",
+    "source_slice_id",
+    "source_slice_instance_id",
+    "source_policy",
+    "content"
+  ],
+  "title": "ZADC Rendered View",
+  "type": "object"
+}
