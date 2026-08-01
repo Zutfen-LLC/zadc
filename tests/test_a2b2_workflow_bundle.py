@@ -7,7 +7,7 @@ and DerivedStateSnapshot.
 """
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import ValidationError
@@ -344,6 +344,57 @@ class TestWorkflowBundleSupersession:
         )
         assert bundle.supersedes_bundle_ref is not None
         assert bundle.supersedes_bundle_ref.artifact_id == other_id
+
+
+class TestWorkflowBundleProvenanceSelfParentRejected:
+    """MAJOR-1: a bundle must not be its own provenance parent.
+
+    ``Provenance.parent_artifact_ids`` accepts arbitrary parent IDs at the
+    shared model level; ``WorkflowBundle`` must independently reject the
+    case where its own ``artifact_id`` appears among them, regardless of
+    whether any typed reference collection also self-references (those are
+    checked separately by ``_check_workflow_bundle_invariants``'s ``all_refs``
+    loop and do not cover ``provenance.parent_artifact_ids`` at all).
+    """
+
+    def test_bundle_id_as_sole_parent_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="parent_artifact_ids"):
+            build_workflow_bundle(provenance=Provenance(parent_artifact_ids=(WORKFLOW_BUNDLE_ID,)))
+
+    def test_bundle_id_among_multiple_parents_rejected(self) -> None:
+        other_id = "urn:uuid:00000000-0000-0000-0000-000000000801"
+        with pytest.raises(ValidationError, match="parent_artifact_ids"):
+            build_workflow_bundle(
+                provenance=Provenance(parent_artifact_ids=(other_id, WORKFLOW_BUNDLE_ID))
+            )
+
+    def test_distinct_parent_ids_still_accepted(self) -> None:
+        other_id = "urn:uuid:00000000-0000-0000-0000-000000000802"
+        bundle = build_workflow_bundle(provenance=Provenance(parent_artifact_ids=(other_id,)))
+        assert bundle.provenance.parent_artifact_ids == (other_id,)
+
+
+class TestWorkflowBundleDerivedStateChronology:
+    """MAJOR-2: an immutable bundle must not carry a derived-state snapshot
+    computed after the bundle's own declared creation time."""
+
+    def test_computed_at_after_created_at_rejected(self) -> None:
+        base = build_workflow_bundle()
+        new_ds = _replace_derived_state(base, computed_at=base.created_at + timedelta(minutes=1))
+        with pytest.raises(ValidationError, match="computed_at"):
+            build_workflow_bundle(derived_state=new_ds)
+
+    def test_computed_at_equal_created_at_accepted(self) -> None:
+        base = build_workflow_bundle()
+        new_ds = _replace_derived_state(base, computed_at=base.created_at)
+        bundle = build_workflow_bundle(derived_state=new_ds)
+        assert bundle.derived_state.computed_at == bundle.created_at
+
+    def test_computed_at_before_created_at_accepted(self) -> None:
+        base = build_workflow_bundle()
+        new_ds = _replace_derived_state(base, computed_at=base.created_at - timedelta(minutes=1))
+        bundle = build_workflow_bundle(derived_state=new_ds)
+        assert bundle.derived_state.computed_at < bundle.created_at
 
 
 class TestWorkflowBundleDigestSealingAndCanonicalization:

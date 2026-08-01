@@ -82,7 +82,7 @@ def build_minimal_workflow_bundle(**overrides: object) -> WorkflowBundle:
     packet_ref = sealed_ref(build_packet())
     derived_state = DerivedStateSnapshot(
         state="pending",
-        computed_at=datetime(2026, 8, 1, 12, 30, 0, tzinfo=UTC),
+        computed_at=datetime(2026, 8, 1, 11, 30, 0, tzinfo=UTC),
         validator_actor_id=VALIDATOR_ID,
         validator_run_id=VALIDATOR_RUN_ID,
         policy=_policy(),
@@ -129,7 +129,7 @@ def build_workflow_bundle(**overrides: object) -> WorkflowBundle:
 
     derived_state = DerivedStateSnapshot(
         state="awaiting_review",
-        computed_at=datetime(2026, 8, 1, 12, 30, 0, tzinfo=UTC),
+        computed_at=datetime(2026, 8, 1, 11, 30, 0, tzinfo=UTC),
         validator_actor_id=VALIDATOR_ID,
         validator_run_id=VALIDATOR_RUN_ID,
         policy=_policy(),

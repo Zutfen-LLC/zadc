@@ -171,7 +171,7 @@ decision_record = zadc.DecisionRecord(
 bundle_id = "urn:uuid:00000000-0000-0000-0000-000000000410"
 derived_state = zadc.DerivedStateSnapshot(
     state="awaiting_review",
-    computed_at=datetime(2026, 8, 1, 12, 30, 0, tzinfo=timezone.utc),
+    computed_at=datetime(2026, 8, 1, 11, 30, 0, tzinfo=timezone.utc),
     validator_actor_id="zutfen:validator:smoke",
     validator_run_id="urn:uuid:00000000-0000-0000-0000-000000000901",
     policy=policy,

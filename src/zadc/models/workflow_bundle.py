@@ -20,9 +20,9 @@ bundle as a claim. This model does not prove that its ``state``,
 correct, and does not recompute them from the referenced artifacts.
 """
 
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
-from pydantic import BeforeValidator, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from zadc.models.common import ArtifactEnvelope, PolicyReference, _ZadcModel
 from zadc.models.shared import ArtifactReference
@@ -144,6 +144,33 @@ _TOP_LEVEL_REF_COLLECTIONS: tuple[str, ...] = (
 )
 
 
+def _workflow_bundle_json_schema_extra(schema: dict[str, Any], model: type[BaseModel]) -> None:
+    """Model-owned hook surfacing the supersession-requires-parent-lineage gate.
+
+    JSON Schema can express that a non-null ``supersedes_bundle_ref`` requires
+    ``provenance.parent_artifact_ids`` to be non-empty (``minItems: 1``) via a
+    single ``if``/``then`` block. It cannot express that the exact
+    ``supersedes_bundle_ref.artifact_id`` value is a *member* of
+    ``parent_artifact_ids`` — a membership check against a sibling tuple's
+    element values — which remains runtime-only, enforced by
+    :meth:`WorkflowBundle._check_workflow_bundle_invariants`.
+    """
+    schema["allOf"] = [
+        {
+            "if": {
+                "properties": {"supersedes_bundle_ref": {"not": {"type": "null"}}},
+                "required": ["supersedes_bundle_ref"],
+            },
+            "then": {
+                "properties": {
+                    "provenance": {"properties": {"parent_artifact_ids": {"minItems": 1}}}
+                },
+                "required": ["provenance"],
+            },
+        },
+    ]
+
+
 class WorkflowBundle(ArtifactEnvelope):
     """The canonical aggregate for one slice instance (architecture 8.15, 11.6).
 
@@ -156,6 +183,8 @@ class WorkflowBundle(ArtifactEnvelope):
     type (that referential-integrity check is deferred to a later
     validation slice).
     """
+
+    model_config = ConfigDict(json_schema_extra=_workflow_bundle_json_schema_extra)
 
     artifact_type: Literal["workflow_bundle"]
 
@@ -187,6 +216,15 @@ class WorkflowBundle(ArtifactEnvelope):
     def _check_workflow_bundle_invariants(self) -> "WorkflowBundle":
         if self.bundle_id != self.artifact_id:
             raise ValueError("bundle_id must equal the envelope artifact_id")
+        if self.artifact_id in self.provenance.parent_artifact_ids:
+            raise ValueError(
+                "provenance.parent_artifact_ids must not contain the WorkflowBundle's own "
+                "artifact_id"
+            )
+        if self.derived_state.computed_at > self.created_at:
+            raise ValueError(
+                "derived_state.computed_at must not be later than the WorkflowBundle's created_at"
+            )
         if self.policy != self.derived_state.policy:
             raise ValueError("derived_state.policy must equal the WorkflowBundle envelope policy")
 

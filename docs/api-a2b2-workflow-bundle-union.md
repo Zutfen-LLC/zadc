@@ -88,8 +88,9 @@ referential-integrity check is deferred to a later validation slice.
 
 ## Bundle-internal consistency (runtime-enforced)
 
-`WorkflowBundle` enforces the following at construction (all runtime-only —
-see [Schema-expressible vs. runtime-only invariants](#schema-expressible-vs-runtime-only-invariants)):
+`WorkflowBundle` enforces the following at construction (runtime-only
+except where noted — see [Schema-expressible vs. runtime-only
+invariants](#schema-expressible-vs-runtime-only-invariants)):
 
 1. `bundle_id` must equal the envelope `artifact_id`.
 2. No referenced `artifact_id` — in `packet_ref`, any of the six typed
@@ -112,8 +113,16 @@ see [Schema-expressible vs. runtime-only invariants](#schema-expressible-vs-runt
    references (`packet_ref` plus the six typed collections).
 7. `agent_run_refs` must have unique `run_id` values.
 8. When `supersedes_bundle_ref` is present: it must not equal this
-   bundle's own `artifact_id` (covered by #2), and its `artifact_id` must
-   appear in `provenance.parent_artifact_ids`.
+   bundle's own `artifact_id` (covered by #2), its `artifact_id` must
+   appear in `provenance.parent_artifact_ids` (runtime-only), and
+   `provenance.parent_artifact_ids` must be non-empty (schema-owned —
+   see [Schema-owned: supersession requires parent
+   lineage](#schema-owned-supersession-requires-parent-lineage)).
+9. `WorkflowBundle.artifact_id` must never appear in
+   `provenance.parent_artifact_ids` — a bundle must not be its own
+   provenance parent.
+10. `derived_state.computed_at` must not be later than the bundle's own
+    `created_at`.
 
 ## Global artifact union: `ZadcArtifact`
 
@@ -170,16 +179,27 @@ separate strict flag is layered on top of the adapter call.
 
 Unlike `ReviewReport` and `DecisionRecord` (A2B1), which each carry
 artifact-level `allOf`/`if`/`then` schema hooks for their conditional
-presence gates, **`WorkflowBundle`'s own schema carries no top-level
-`allOf` business-constraint block** — every one of its cross-collection and
-cross-object invariants (self-reference, digest consistency, top-level
+presence gates, **almost all of `WorkflowBundle`'s cross-collection and
+cross-object invariants** (self-reference, digest consistency, top-level
 collection exclusivity, derived-state-to-top-level membership, policy
-equality, supersession lineage) is a comparison between two arbitrary
-sibling or cross-object values, which has no standard JSON Schema
-vocabulary. All of them are enforced only by
+equality, provenance self-parentage, derived-state chronology, and exact
+supersession-parent *membership*) are comparisons between two arbitrary
+sibling or cross-object values, which have no standard JSON Schema
+vocabulary. Those are enforced only by
 `WorkflowBundle._check_workflow_bundle_invariants`,
 `DerivedStateSnapshot._check_derived_state_invariants`, and
 `BundleBlocker._check_artifact_refs`.
+
+One necessary portion of the supersession invariant is schema-expressible,
+however: a non-null `supersedes_bundle_ref` requires
+`provenance.parent_artifact_ids` to be non-empty. `WorkflowBundle`'s schema
+therefore carries exactly **one** top-level `allOf`/`if`/`then` gate for
+this — see [Schema-owned: supersession requires parent
+lineage](#schema-owned-supersession-requires-parent-lineage) below. This
+is necessary, not sufficient: it does not (and cannot) prove that
+`supersedes_bundle_ref.artifact_id` is itself a member of
+`parent_artifact_ids` — only that the tuple is non-empty. The exact
+membership check remains runtime-only.
 
 What **is** schema-expressible and schema-owned for `WorkflowBundle`:
 
@@ -197,6 +217,35 @@ What **is** schema-expressible and schema-owned for `WorkflowBundle`:
   express cross-collection exclusivity at all. Both of those remain
   runtime-only (see below).
 
+#### Schema-owned: supersession requires parent lineage
+
+```json
+{
+  "allOf": [
+    {
+      "if": {
+        "properties": {"supersedes_bundle_ref": {"not": {"type": "null"}}},
+        "required": ["supersedes_bundle_ref"]
+      },
+      "then": {
+        "properties": {
+          "provenance": {"properties": {"parent_artifact_ids": {"minItems": 1}}}
+        },
+        "required": ["provenance"]
+      }
+    }
+  ]
+}
+```
+
+When `supersedes_bundle_ref` is present and non-null, `provenance
+.parent_artifact_ids` must have at least one item. This is proven
+independently by a raw Draft 2020-12 validator against a payload built with
+a valid supersession and then mutated to carry an empty
+`parent_artifact_ids` — see
+`TestWorkflowBundleSchemaSupersessionRequiresParentLineage` in
+`tests/test_a2b2_schema_export.py`.
+
 ### Runtime-only invariants
 
 The following have no standard JSON Schema (Draft 2020-12) vocabulary and
@@ -208,10 +257,18 @@ are enforced only by the Python models' `model_validator`s:
 - No reference position (`packet_ref`, any typed collection,
   `supersedes_bundle_ref`, any `derived_state` reference) may equal the
   bundle's own `artifact_id`.
+- `WorkflowBundle.artifact_id` must not appear in
+  `provenance.parent_artifact_ids` — a bundle must not be its own
+  provenance parent, regardless of whether it is also referenced from a
+  typed reference collection.
+- `derived_state.computed_at` must not be later than the bundle's own
+  `created_at` — an immutable artifact cannot carry a derived-state
+  snapshot computed after its own declared creation time.
 - `derived_state.policy` must equal the envelope `policy`.
 - `supersedes_bundle_ref.artifact_id` must appear in
   `provenance.parent_artifact_ids` — a membership check against a sibling
-  tuple field.
+  tuple field's element values (the schema-owned gate above only proves
+  the tuple is non-empty, not that this exact value is a member).
 - Every `derived_state.input_artifact_refs` / `blockers[].artifact_refs` /
   `stale_artifact_refs` entry's `artifact_id` **and** `content_digest` must
   match an entry in the bundle's top-level artifact references — both a
@@ -319,7 +376,7 @@ policy = PolicyReference(
 
 derived_state = DerivedStateSnapshot(
     state="awaiting_review",
-    computed_at=datetime(2026, 8, 1, 12, 30, 0, tzinfo=timezone.utc),
+    computed_at=datetime(2026, 8, 1, 11, 30, 0, tzinfo=timezone.utc),
     validator_actor_id="zutfen:validator:zadc",
     validator_run_id="urn:uuid:00000000-0000-0000-0000-000000000900",
     policy=policy,

@@ -7,8 +7,11 @@ and rejects representative invalid variants; regeneration is byte-identical;
 and the exported schema differs from the raw model/adapter schema only by
 approved document metadata and key ordering. It additionally proves the
 union schema independently accepts all eight variants, rejects bad
-discriminators, and that the ``uniqueItems`` scalar/whole-object signals are
-schema-owned (not merely runtime-owned) for WorkflowBundle's collections.
+discriminators, that the ``uniqueItems`` scalar/whole-object signals are
+schema-owned (not merely runtime-owned) for WorkflowBundle's collections,
+and (MAJOR-3) that the supersession-requires-parent-lineage ``minItems: 1``
+gate is schema-owned and independently enforced by a raw Draft 2020-12
+validator, bypassing the runtime model entirely.
 """
 
 import copy
@@ -28,9 +31,11 @@ from tests.a2a_factories import (
     build_packet,
 )
 from tests.a2b1_factories import build_decision_record, build_review_report
-from tests.a2b2_factories import build_minimal_workflow_bundle, build_workflow_bundle
+from tests.a2b2_factories import DIGEST_C, build_minimal_workflow_bundle, build_workflow_bundle
+from zadc import Provenance
 from zadc.canonical import canonical_json_text
 from zadc.digests import seal_artifact
+from zadc.models.shared import ArtifactReference
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
@@ -218,17 +223,74 @@ class TestWorkflowBundleSchemaUniqueItemsIndependentlyProven:
         assert list(validator.iter_errors(data)) == []
 
 
-class TestWorkflowBundleSchemaHasNoBusinessAllOfGates:
-    """A2B2-05/06: every WorkflowBundle cross-collection/cross-object
-    invariant (self-reference, digest consistency, top-level exclusivity,
-    derived-state membership, policy equality, supersession lineage) has no
-    standard JSON Schema vocabulary and is runtime-only — so, unlike
-    ReviewReport/DecisionRecord, the WorkflowBundle schema itself carries no
-    top-level ``allOf`` business-constraint block."""
+class TestWorkflowBundleSchemaAllOfScopedToSupersessionGate:
+    """MAJOR-3 corrected: most WorkflowBundle cross-collection/cross-object
+    invariants (self-reference, digest consistency, top-level exclusivity,
+    derived-state membership, policy equality, exact supersession-parent
+    *membership*) have no standard JSON Schema vocabulary and remain
+    runtime-only. But one necessary portion of the supersession invariant —
+    a non-null ``supersedes_bundle_ref`` requires a non-empty
+    ``provenance.parent_artifact_ids`` — *is* schema-expressible via a single
+    ``if``/``then`` block, and the WorkflowBundle schema now carries exactly
+    that one top-level ``allOf`` gate (not a whole business-constraint
+    block covering every invariant, and not none at all)."""
 
-    def test_no_top_level_allof(self) -> None:
+    def test_top_level_allof_present(self) -> None:
         schema = json.loads((_SCHEMA_DIR / "workflow-bundle.schema.json").read_text())
-        assert "allOf" not in schema
+        assert "allOf" in schema
+
+    def test_allof_has_exactly_one_gate(self) -> None:
+        schema = json.loads((_SCHEMA_DIR / "workflow-bundle.schema.json").read_text())
+        assert len(schema["allOf"]) == 1
+
+    def test_gate_is_the_supersession_parent_lineage_gate(self) -> None:
+        schema = json.loads((_SCHEMA_DIR / "workflow-bundle.schema.json").read_text())
+        gate = schema["allOf"][0]
+        assert "supersedes_bundle_ref" in gate["if"]["properties"]
+        assert gate["then"]["properties"]["provenance"]["properties"]["parent_artifact_ids"] == {
+            "minItems": 1
+        }
+
+
+class TestWorkflowBundleSchemaSupersessionRequiresParentLineage:
+    """MAJOR-3: the supersession-requires-parent-lineage gate is independently
+    proven by a raw Draft 2020-12 validator against mutated dicts, bypassing
+    ``WorkflowBundle``'s runtime ``model_validator`` entirely — mirroring
+    ``TestWorkflowBundleSchemaUniqueItemsIndependentlyProven`` above."""
+
+    def _schema_validator(self) -> Draft202012Validator:
+        schema = json.loads((_SCHEMA_DIR / "workflow-bundle.schema.json").read_text())
+        return Draft202012Validator(schema, format_checker=FormatChecker())
+
+    def _superseding_bundle_data(self) -> dict[str, Any]:
+        other_id = "urn:uuid:00000000-0000-0000-0000-000000000800"
+        other_ref = ArtifactReference(artifact_id=other_id, content_digest=DIGEST_C)
+        bundle = build_workflow_bundle(
+            supersedes_bundle_ref=other_ref,
+            provenance=Provenance(parent_artifact_ids=(other_id,)),
+        )
+        sealed = seal_artifact(bundle)
+        return cast(dict[str, Any], json.loads(canonical_json_text(sealed)))
+
+    def test_supersession_with_empty_parent_ids_rejected(self) -> None:
+        validator = self._schema_validator()
+        data = self._superseding_bundle_data()
+        data["provenance"] = dict(data["provenance"])
+        data["provenance"]["parent_artifact_ids"] = []
+        assert list(validator.iter_errors(data)) != []
+
+    def test_supersession_with_nonempty_parent_ids_accepted(self) -> None:
+        validator = self._schema_validator()
+        data = self._superseding_bundle_data()
+        assert list(validator.iter_errors(data)) == []
+
+    def test_no_supersession_with_empty_parent_ids_still_accepted(self) -> None:
+        """Sanity: the gate only fires when supersedes_bundle_ref is non-null."""
+        validator = self._schema_validator()
+        data = _valid_bundle_data()
+        assert data["supersedes_bundle_ref"] is None
+        assert data["provenance"]["parent_artifact_ids"] == []
+        assert list(validator.iter_errors(data)) == []
 
 
 class TestZadcArtifactSchemaDiscriminator:

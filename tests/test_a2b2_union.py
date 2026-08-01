@@ -1,6 +1,7 @@
 """A2B2: the global ZadcArtifact discriminated union and validation adapter."""
 
 import json
+from typing import cast
 
 import pytest
 from pydantic import ValidationError
@@ -140,6 +141,33 @@ class TestZadcArtifactRejectsCrossVariantFields:
         }
         with pytest.raises(ValidationError):
             validate_artifact(data)
+
+
+class TestZadcArtifactRejectsWorkflowBundleSelfParentProvenance:
+    """MAJOR-1 regression: the global union entrypoint must reject a
+    WorkflowBundle payload whose own artifact_id appears in
+    provenance.parent_artifact_ids, exactly as direct construction does —
+    proving the check fires along the ``validate_artifact``/
+    ``validate_artifact_json`` dispatch path, not merely on direct
+    ``WorkflowBundle(...)`` construction."""
+
+    def _data_with_self_parent_provenance(self) -> dict[str, object]:
+        data = _sealed_data(build_workflow_bundle)
+        provenance: dict[str, object] = dict(cast(dict[str, object], data["provenance"]))
+        provenance["parent_artifact_ids"] = [data["artifact_id"]]
+        data["provenance"] = provenance
+        return data
+
+    def test_self_parent_provenance_rejected_via_validate_artifact(self) -> None:
+        data = self._data_with_self_parent_provenance()
+        with pytest.raises(ValidationError, match="parent_artifact_ids"):
+            validate_artifact(data)
+
+    def test_self_parent_provenance_rejected_via_validate_artifact_json(self) -> None:
+        data = self._data_with_self_parent_provenance()
+        text = json.dumps(data)
+        with pytest.raises(ValidationError, match="parent_artifact_ids"):
+            validate_artifact_json(text)
 
 
 class TestZadcArtifactTypeExport:

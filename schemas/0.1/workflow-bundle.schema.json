@@ -456,6 +456,36 @@
   "$id": "https://schemas.zutfen.com/zadc/0.1/workflow-bundle.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "supersedes_bundle_ref": {
+            "not": {
+              "type": "null"
+            }
+          }
+        },
+        "required": [
+          "supersedes_bundle_ref"
+        ]
+      },
+      "then": {
+        "properties": {
+          "provenance": {
+            "properties": {
+              "parent_artifact_ids": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        "required": [
+          "provenance"
+        ]
+      }
+    }
+  ],
   "description": "The canonical aggregate for one slice instance for the Zutfen Agentic Development Contract v0.1 (architecture sections 8.15, 11.6). Links referenced artifacts by stable ID and content digest and carries a recorded derived-state snapshot; it does not embed full artifacts, recompute derived state, or verify that a referenced artifact_id resolves to a sealed artifact of its collection's claimed type.",
   "properties": {
     "agent_run_refs": {
