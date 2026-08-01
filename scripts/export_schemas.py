@@ -168,13 +168,24 @@ def _reorder_dict(data: dict[str, object], key_order: list[str]) -> dict[str, ob
 def _build_schema_for_spec(spec: _SchemaSpec) -> dict[str, object]:
     """Build the JSON Schema for one spec's model with deterministic post-processing.
 
-    FIX3-C: All business constraints — const values, required fields, enums,
-    patterns, UUID conditionals, timestamp ranges, -00:00 exclusion, model
-    cross-field invariants surfaced as schema constraints — originate from
-    the model's Pydantic JSON Schema metadata and custom
-    ``__get_pydantic_json_schema__`` hooks. The exporter does NOT inject or
-    modify any business constraint; it adds only stable document metadata
-    and deterministic key ordering.
+    FIX3-C: Every business constraint that appears in the output — const
+    values, required fields, enums, patterns, UUID conditionals, timestamp
+    ranges, -00:00 exclusion, and the subset of cross-field invariants that
+    standard JSON Schema can express (e.g. subject-kind-gated required
+    fields via ``allOf``/``if``/``then``) — originates from the model's
+    Pydantic JSON Schema metadata and custom ``__get_pydantic_json_schema__``
+    or ``json_schema_extra`` hooks. The exporter does NOT inject or modify
+    any business constraint; it adds only stable document metadata and
+    deterministic key ordering.
+
+    Not every runtime cross-field invariant is representable this way.
+    Comparisons between two arbitrary sibling values (two SHA strings, two
+    timestamps) and cross-item uniqueness-by-field (e.g. unique
+    ``requirement_id`` or ``lane_id`` across a list) have no standard JSON
+    Schema vocabulary and remain runtime-only, enforced by each model's
+    ``model_validator``. See docs/api-a2a-execution-evidence-artifacts.md
+    for the itemized list of which invariants are schema-expressible and
+    which are runtime-only.
     """
     raw = spec.model.model_json_schema(mode="validation")
 

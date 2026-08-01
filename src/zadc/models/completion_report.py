@@ -10,7 +10,7 @@ automatically promoted to a stronger status by this model.
 
 from typing import Annotated, Literal, Optional
 
-from pydantic import BeforeValidator, model_validator
+from pydantic import BeforeValidator, Field, model_validator
 
 from zadc.models.common import ArtifactEnvelope, _ZadcModel
 from zadc.models.shared import ExecutorClaim
@@ -34,9 +34,30 @@ class ReconciliationCommit(_ZadcModel):
 
 class Reconciliation(_ZadcModel):
     """Enumerates intervening commits when the observed work-start SHA does
-    not match the packet's expected work-start SHA (architecture 13, INV-002)."""
+    not match the packet's expected work-start SHA (architecture 13, INV-002).
 
-    intervening_commits: Annotated[tuple[ReconciliationCommit, ...], BeforeValidator(coerce_tuple)]
+    ``intervening_commits`` MUST be non-empty — an empty reconciliation
+    would satisfy the presence gate on :class:`WorkStartObservation` without
+    actually enumerating any commit, defeating the INV-002 accountability
+    requirement. ``minItems: 1`` is schema-model-owned via ``Field``.
+
+    ``uniqueItems`` is emitted as a best-effort schema signal (it rejects
+    fully identical entries), but JSON Schema cannot express "no duplicate
+    ``sha`` across items with otherwise-differing disposition/rationale" —
+    that narrower sha-uniqueness invariant is enforced at runtime only,
+    by :meth:`_check_unique_shas`.
+    """
+
+    intervening_commits: Annotated[
+        tuple[ReconciliationCommit, ...], BeforeValidator(coerce_tuple)
+    ] = Field(min_length=1, json_schema_extra={"uniqueItems": True})
+
+    @model_validator(mode="after")
+    def _check_unique_shas(self) -> "Reconciliation":
+        shas = [commit.sha for commit in self.intervening_commits]
+        if len(shas) != len(set(shas)):
+            raise ValueError("intervening_commits must not contain duplicate SHAs")
+        return self
 
 
 class WorkStartObservation(_ZadcModel):

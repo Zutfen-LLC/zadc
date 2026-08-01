@@ -67,18 +67,40 @@ class TestWorkStartObservationInvariants:
                 expected_sha=SHA_A,
                 actual_sha=SHA_A,
                 match=True,
-                reconciliation=Reconciliation(intervening_commits=()),
+                reconciliation=Reconciliation(
+                    intervening_commits=(
+                        ReconciliationCommit(sha=SHA_C, disposition="x", rationale="y"),
+                    )
+                ),
             )
 
-    def test_reconciliation_allows_empty_intervening_commits(self) -> None:
-        obs = WorkStartObservation(
-            expected_sha=SHA_A,
-            actual_sha=SHA_B,
-            match=False,
-            reconciliation=Reconciliation(intervening_commits=()),
+
+class TestReconciliationInvariants:
+    def test_rejects_empty_intervening_commits(self) -> None:
+        with pytest.raises(ValidationError):
+            Reconciliation(intervening_commits=())
+
+    def test_rejects_duplicate_intervening_commit_shas(self) -> None:
+        with pytest.raises(ValidationError, match="duplicate"):
+            Reconciliation(
+                intervening_commits=(
+                    ReconciliationCommit(
+                        sha=SHA_C, disposition="benign hotfix", rationale="urgent patch"
+                    ),
+                    ReconciliationCommit(
+                        sha=SHA_C, disposition="evidence-only", rationale="ci log added"
+                    ),
+                )
+            )
+
+    def test_accepts_unique_intervening_commits(self) -> None:
+        reconciliation = Reconciliation(
+            intervening_commits=(
+                ReconciliationCommit(sha=SHA_A, disposition="a", rationale="x"),
+                ReconciliationCommit(sha=SHA_C, disposition="b", rationale="y"),
+            )
         )
-        assert obs.reconciliation is not None
-        assert obs.reconciliation.intervening_commits == ()
+        assert len(reconciliation.intervening_commits) == 2
 
 
 class TestChangesInvariants:

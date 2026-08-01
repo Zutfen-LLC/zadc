@@ -61,7 +61,12 @@ that emit exact JSON Schema `enum` entries with no runtime-only values.
   `CertificationManifest.subject` and `EvidenceArtifact.subject`. Enforces:
   a `pr_head` subject requires `head_sha == subject_sha`; a
   `synthetic_merge` subject requires all three of `base_sha`, `head_sha`,
-  and `synthetic_merge_sha`, with `subject_sha == synthetic_merge_sha`.
+  and `synthetic_merge_sha`, with `subject_sha == synthetic_merge_sha`. The
+  *presence* half of each gate (`pr_head` → `head_sha` present;
+  `synthetic_merge` → all three present) is also surfaced in the generated
+  JSON Schema as a model-owned `allOf`/`if`/`then` block; the *equality*
+  half (`head_sha == subject_sha`, etc.) is runtime-only — see
+  [Runtime-only invariants](#runtime-only-invariants).
 - **`VerificationEnvironment`** — the trusted runner/OS/architecture/
   toolchain/container-digest record for a certification run.
 - **`ObservationSource`** — the live-source identity an `Observation` was
@@ -112,7 +117,14 @@ The execution agent's completion claim (architecture section 11.2).
 `Reconciliation.intervening_commits` enumerates each intervening commit as
 a `ReconciliationCommit` (`sha`, `disposition`, `rationale`) when the
 observed work-start SHA does not match the packet's expected SHA
-(architecture 13, INV-002).
+(architecture 13, INV-002). It MUST be non-empty (`minItems: 1`,
+model-owned via `Field`) — an empty reconciliation would satisfy the
+presence gate on `WorkStartObservation` without enumerating any commit,
+defeating INV-002 accountability. Duplicate `sha` values across entries
+are rejected at runtime; `uniqueItems: true` is emitted as a best-effort
+schema signal (it rejects fully-identical entries, but JSON Schema has no
+"unique by field" primitive to catch same-`sha`/different-disposition
+duplicates on its own).
 
 All statements in this artifact default to epistemic status
 `AGENT_REPORTED` — a completion report is evidence of what the agent
@@ -131,7 +143,7 @@ by the execution agent. `artifact_type: Literal["certification_manifest"]`.
 | `environment` | `VerificationEnvironment` | |
 | `lanes` | `tuple[LaneResult, ...]` | unique `lane_id`; `completed_at` must not precede `started_at` |
 | `evidence` | `tuple[EvidenceReference, ...]` | |
-| `result` | `CertificationResult` | `pass` is invalid when any *mandatory* lane did not pass |
+| `result` | `CertificationResult` | `pass` is invalid when any *mandatory* lane did not pass — also surfaced in the generated schema as a model-owned `allOf`/`if`/`then` over `lanes[].conclusion` |
 
 The manifest reuses the inherited `ArtifactEnvelope.policy` field as its
 certification policy reference — there is no second, potentially
@@ -279,10 +291,59 @@ schemas/0.1/observation.schema.json
 backward compatibility; `export_all_schemas()` exports every schema.
 Every artifact instance's inherited `schema` field stays fixed to
 `SCHEMA_ID`; each concrete schema's own `$id` matches its filename
-(e.g. `packet.schema.json` → `.../0.1/packet.schema.json`). All business
-constraints (`const`, `required`, `enum`, patterns, cross-field
-conditionals) originate from the models — the exporter adds only stable
-document metadata and deterministic key ordering.
+(e.g. `packet.schema.json` → `.../0.1/packet.schema.json`). Every business
+constraint that appears in a generated schema (`const`, `required`, `enum`,
+patterns, and the schema-expressible cross-field conditionals below)
+originates from the models — the exporter adds only stable document
+metadata and deterministic key ordering. Not every runtime invariant is
+schema-expressible; see [Runtime-only invariants](#runtime-only-invariants).
+
+## Runtime-only invariants
+
+Some invariants this slice enforces at construction time have no standard
+JSON Schema (Draft 2020-12) vocabulary and are **not** — and cannot be —
+surfaced in the generated schemas. An external validator using only the
+committed schema will not catch these; only the Python models do.
+
+**Comparisons between two arbitrary sibling values** (JSON Schema has no
+way to compare one property's value against another's):
+
+- `PacketAuthorization.expires_at` must be later than `authorized_at`.
+- `Observation.expires_at` must be later than `observed_at`.
+- `LaneResult.completed_at` must not precede `started_at`.
+- `WorkStartObservation.match` must equal `expected_sha == actual_sha`.
+- `ExactSubject`: `head_sha == subject_sha` (`pr_head`) and
+  `synthetic_merge_sha == subject_sha` (`synthetic_merge`) — only the
+  *presence* of the required sibling fields is schema-expressible (see
+  above), not their equality to `subject_sha`.
+- `Packet.supersedes.artifact_id` must not equal the packet's own
+  `artifact_id`.
+
+**Cross-item uniqueness by field** (JSON Schema's `uniqueItems` compares
+whole array items, not a single field within each item):
+
+- `Packet.requirements[].requirement_id` must be unique across the packet.
+- `VerificationRequirements.mandatory_lanes` / `.advisory_lanes` must each
+  be duplicate-free and mutually disjoint.
+- `Changes.commits` and `Changes.files_changed` must each be duplicate-free.
+- `CertificationManifest.lanes[].lane_id` must be unique across the
+  manifest.
+- `Reconciliation.intervening_commits[].sha` must be unique; `minItems: 1`
+  is schema-expressible (see above), but sha-only deduplication is not.
+
+**Conditional presence** (expressible in principle, not implemented in
+this slice — the `match`/`reconciliation` relationship is not schema-gated
+because canonical JSON always includes every field, even when `null`,
+which makes a bare `required` gate ineffective against the actual `None`
+case; the underlying `match` boolean is itself derived from a
+runtime-only SHA comparison anyway):
+
+- `WorkStartObservation.reconciliation` must be present when `match` is
+  `False` and absent when `match` is `True`.
+
+All of the above are enforced by each model's `model_validator` and are
+covered by direct unit tests (constructing the model and asserting
+`ValidationError`), independent of schema validation.
 
 ## Trust limitations
 

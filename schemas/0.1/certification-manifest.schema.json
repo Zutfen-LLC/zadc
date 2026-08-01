@@ -64,6 +64,44 @@
     },
     "ExactSubject": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "subject_kind": {
+                "const": "pr_head"
+              }
+            },
+            "required": [
+              "subject_kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "head_sha"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "subject_kind": {
+                "const": "synthetic_merge"
+              }
+            },
+            "required": [
+              "subject_kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "base_sha",
+              "head_sha",
+              "synthetic_merge_sha"
+            ]
+          }
+        }
+      ],
       "description": "The exact commit subject a verification run or evidence item targets.\n\nShared by :class:`~zadc.models.certification_manifest.CertificationManifest`\nand :class:`~zadc.models.evidence_artifact.EvidenceArtifact` (A2A-07).\nThis model records the claimed subject identity only; it does not\ninspect Git ancestry or diff content.",
       "properties": {
         "base_sha": {
@@ -465,6 +503,45 @@
   "$id": "https://schemas.zutfen.com/zadc/0.1/certification-manifest.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "const": "pass"
+          }
+        },
+        "required": [
+          "result"
+        ]
+      },
+      "then": {
+        "properties": {
+          "lanes": {
+            "items": {
+              "if": {
+                "properties": {
+                  "classification": {
+                    "const": "mandatory"
+                  }
+                },
+                "required": [
+                  "classification"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "conclusion": {
+                    "const": "pass"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "description": "Trusted verification results bound to an exact commit subject for the Zutfen Agentic Development Contract v0.1 (architecture section 11.3). Produced by trusted CI or a trusted local verifier, never by the execution agent.",
   "properties": {
     "artifact_id": {

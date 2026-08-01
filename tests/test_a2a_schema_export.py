@@ -288,6 +288,62 @@ class TestCertificationManifestSchemaRejectsNestedInvalid:
         data["result"] = "maybe"
         assert list(validator.iter_errors(data)) != []
 
+    def test_pr_head_subject_missing_head_sha_rejected(self) -> None:
+        """MAJOR-2: subject-kind if/then now surfaces the pr_head presence gate."""
+        schema = json.loads((_SCHEMA_DIR / "certification-manifest.schema.json").read_text())
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        sealed = seal_artifact(build_certification_manifest())
+        data = json.loads(canonical_json_text(sealed))
+        assert data["subject"]["subject_kind"] == "pr_head"
+        del data["subject"]["head_sha"]
+        assert list(validator.iter_errors(data)) != []
+
+    def test_synthetic_merge_subject_missing_supporting_shas_rejected(self) -> None:
+        """MAJOR-2: subject-kind if/then now surfaces the synthetic_merge presence gate."""
+        schema = json.loads((_SCHEMA_DIR / "certification-manifest.schema.json").read_text())
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        sha = "c" * 40
+        manifest = build_certification_manifest(
+            subject={
+                "repository_id": "github:Zutfen-LLC/zadc",
+                "subject_kind": "synthetic_merge",
+                "subject_sha": sha,
+                "base_sha": "a" * 40,
+                "head_sha": "b" * 40,
+                "synthetic_merge_sha": sha,
+            }
+        )
+        sealed = seal_artifact(manifest)
+        data = json.loads(canonical_json_text(sealed))
+        del data["subject"]["base_sha"]
+        del data["subject"]["head_sha"]
+        del data["subject"]["synthetic_merge_sha"]
+        assert list(validator.iter_errors(data)) != []
+
+    def test_result_pass_with_failing_mandatory_lane_rejected(self) -> None:
+        """MAJOR-2: result/lane if/then now surfaces the mandatory-lane pass gate."""
+        schema = json.loads((_SCHEMA_DIR / "certification-manifest.schema.json").read_text())
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        sealed = seal_artifact(build_certification_manifest())
+        data = json.loads(canonical_json_text(sealed))
+        # Bypass the runtime model_validator by mutating the raw dict directly,
+        # proving the *schema itself* — not just the model — rejects this.
+        data["lanes"][0]["classification"] = "mandatory"
+        data["lanes"][0]["conclusion"] = "fail"
+        data["result"] = "pass"
+        assert list(validator.iter_errors(data)) != []
+
+    def test_result_pass_with_failing_advisory_lane_still_accepted(self) -> None:
+        """The if/then gate is scoped to mandatory lanes only, per the model."""
+        schema = json.loads((_SCHEMA_DIR / "certification-manifest.schema.json").read_text())
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        sealed = seal_artifact(build_certification_manifest())
+        data = json.loads(canonical_json_text(sealed))
+        data["lanes"][0]["classification"] = "advisory"
+        data["lanes"][0]["conclusion"] = "fail"
+        data["result"] = "pass"
+        assert list(validator.iter_errors(data)) == []
+
 
 class TestEvidenceArtifactSchemaRejectsNestedInvalid:
     def test_negative_size_bytes_rejected(self) -> None:
@@ -305,6 +361,55 @@ class TestEvidenceArtifactSchemaRejectsNestedInvalid:
         data = json.loads(canonical_json_text(sealed))
         data["availability"] = "sometimes"
         assert list(validator.iter_errors(data)) != []
+
+    def test_pr_head_subject_missing_head_sha_rejected(self) -> None:
+        """MAJOR-2: the shared ExactSubject if/then also applies via
+        evidence-artifact.schema.json."""
+        schema = json.loads((_SCHEMA_DIR / "evidence-artifact.schema.json").read_text())
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        artifact = build_evidence_artifact(
+            subject={
+                "repository_id": "github:Zutfen-LLC/zadc",
+                "subject_kind": "pr_head",
+                "subject_sha": "b" * 40,
+                "head_sha": "b" * 40,
+            }
+        )
+        sealed = seal_artifact(artifact)
+        data = json.loads(canonical_json_text(sealed))
+        del data["subject"]["head_sha"]
+        assert list(validator.iter_errors(data)) != []
+
+
+class TestReconciliationSchemaRejectsNestedInvalid:
+    def test_empty_intervening_commits_rejected(self) -> None:
+        """MAJOR-1: minItems: 1 is now model-owned on Reconciliation.intervening_commits."""
+        schema = json.loads((_SCHEMA_DIR / "completion-report.schema.json").read_text())
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        sha_c = "c" * 40
+        report = build_completion_report(
+            work_start={
+                "expected_sha": "a" * 40,
+                "actual_sha": "b" * 40,
+                "match": False,
+                "reconciliation": {
+                    "intervening_commits": [
+                        {"sha": sha_c, "disposition": "evidence-only", "rationale": "ci log"}
+                    ]
+                },
+            }
+        )
+        sealed = seal_artifact(report)
+        data = json.loads(canonical_json_text(sealed))
+        data["work_start"]["reconciliation"]["intervening_commits"] = []
+        assert list(validator.iter_errors(data)) != []
+
+    def test_intervening_commits_schema_declares_min_items(self) -> None:
+        schema = json.loads((_SCHEMA_DIR / "completion-report.schema.json").read_text())
+        reconciliation_def = schema["$defs"]["Reconciliation"]
+        commits_schema = reconciliation_def["properties"]["intervening_commits"]
+        assert commits_schema["minItems"] == 1
+        assert commits_schema["uniqueItems"] is True
 
 
 class TestObservationSchemaRejectsNestedInvalid:

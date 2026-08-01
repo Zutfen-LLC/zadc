@@ -9,9 +9,9 @@ of these models is itself a top-level ZADC artifact envelope — they are
 always nested inside a concrete artifact's body.
 """
 
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
-from pydantic import BeforeValidator, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, model_validator
 
 from zadc.models.common import _ZadcModel
 from zadc.types import (
@@ -25,6 +25,34 @@ from zadc.types import (
     SubjectKind,
     coerce_tuple,
 )
+
+
+def _exact_subject_json_schema_extra(schema: dict[str, Any], model: type[BaseModel]) -> None:
+    """Model-owned hook surfacing the subject-kind presence gates.
+
+    JSON Schema can express that ``pr_head``/``synthetic_merge`` REQUIRE
+    their supporting SHA fields to be present. It cannot express that
+    ``head_sha`` (or ``synthetic_merge_sha``) EQUALS ``subject_sha`` — a
+    comparison between two arbitrary sibling string values is outside
+    standard JSON Schema's vocabulary. Those equality checks remain
+    runtime-only, enforced by ``ExactSubject._check_subject_kind_invariants``.
+    """
+    schema["allOf"] = [
+        {
+            "if": {
+                "properties": {"subject_kind": {"const": "pr_head"}},
+                "required": ["subject_kind"],
+            },
+            "then": {"required": ["head_sha"]},
+        },
+        {
+            "if": {
+                "properties": {"subject_kind": {"const": "synthetic_merge"}},
+                "required": ["subject_kind"],
+            },
+            "then": {"required": ["base_sha", "head_sha", "synthetic_merge_sha"]},
+        },
+    ]
 
 
 class ArtifactReference(_ZadcModel):
@@ -62,6 +90,8 @@ class ExactSubject(_ZadcModel):
     This model records the claimed subject identity only; it does not
     inspect Git ancestry or diff content.
     """
+
+    model_config = ConfigDict(json_schema_extra=_exact_subject_json_schema_extra)
 
     repository_id: GlobalId
     subject_kind: SubjectKind

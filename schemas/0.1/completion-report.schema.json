@@ -360,14 +360,16 @@
     },
     "Reconciliation": {
       "additionalProperties": false,
-      "description": "Enumerates intervening commits when the observed work-start SHA does\nnot match the packet's expected work-start SHA (architecture 13, INV-002).",
+      "description": "Enumerates intervening commits when the observed work-start SHA does\nnot match the packet's expected work-start SHA (architecture 13, INV-002).\n\n``intervening_commits`` MUST be non-empty — an empty reconciliation\nwould satisfy the presence gate on :class:`WorkStartObservation` without\nactually enumerating any commit, defeating the INV-002 accountability\nrequirement. ``minItems: 1`` is schema-model-owned via ``Field``.\n\n``uniqueItems`` is emitted as a best-effort schema signal (it rejects\nfully identical entries), but JSON Schema cannot express \"no duplicate\n``sha`` across items with otherwise-differing disposition/rationale\" —\nthat narrower sha-uniqueness invariant is enforced at runtime only,\nby :meth:`_check_unique_shas`.",
       "properties": {
         "intervening_commits": {
           "items": {
             "$ref": "#/$defs/ReconciliationCommit"
           },
+          "minItems": 1,
           "title": "Intervening Commits",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         }
       },
       "required": [
