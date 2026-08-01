@@ -3,8 +3,9 @@
 This package provides the canonical artifact substrate: common envelope
 models, constrained identifiers/timestamps, deterministic canonical JSON,
 SHA-256 sealing/verification, and a reproducible JSON Schema. It also
-provides the first concrete A2A artifact models: Packet, CompletionReport,
-CertificationManifest, EvidenceArtifact, and Observation.
+provides the A2A artifact models (Packet, CompletionReport,
+CertificationManifest, EvidenceArtifact, Observation) and the A2B1 review
+and decision artifact models (ReviewReport, DecisionRecord).
 
 Public API:
     Types:
@@ -23,7 +24,9 @@ Public API:
         EpistemicStatus, MismatchPolicy, ExactSubjectPolicy, FindingSeverity,
         ExecutorRecommendation, SubjectKind, LaneClassification,
         LaneConclusion, CertificationResult, EvidenceAvailability,
-        ObservationSourceType — shared contract enums (Literal aliases).
+        ObservationSourceType, FindingStatus, ReviewerRecommendation,
+        DecisionType, FindingLocationType — shared contract enums
+        (Literal aliases).
 
     A1 envelope models:
         ArtifactEnvelope  — The common envelope shared by all artifacts.
@@ -37,6 +40,11 @@ Public API:
         CertificationManifest  — Trusted verification results.
         EvidenceArtifact       — External evidence metadata and binding.
         Observation            — Timestamped statement from a named source.
+        Plus their nested supporting models — see ``zadc.models``.
+
+    A2B1 review and decision artifact models:
+        ReviewReport    — A reviewer's structured judgment of a subject.
+        DecisionRecord  — An authenticated human decision claim.
         Plus their nested supporting models — see ``zadc.models``.
 
     Canonical JSON:
@@ -75,6 +83,12 @@ from zadc.models.completion_report import (
     VerificationClaims,
     WorkStartObservation,
 )
+from zadc.models.decision_record import (
+    AcceptedRisk,
+    DecisionRecord,
+    DecisionSubject,
+    HumanDecisionIdentity,
+)
 from zadc.models.evidence_artifact import EvidenceArtifact
 from zadc.models.observation import Observation
 from zadc.models.packet import (
@@ -88,6 +102,19 @@ from zadc.models.packet import (
     Requirement,
     VerificationRequirements,
     WorkStartAuthorization,
+)
+from zadc.models.review_report import (
+    ArtifactFindingLocation,
+    FileFindingLocation,
+    Finding,
+    FindingLocation,
+    GeneralFindingLocation,
+    ReviewedFile,
+    ReviewerIdentity,
+    ReviewIndependence,
+    ReviewInputs,
+    ReviewReport,
+    ReviewSubject,
 )
 from zadc.models.shared import (
     ArtifactReference,
@@ -104,11 +131,14 @@ from zadc.types import (
     ArtifactType,
     CertificationResult,
     ConstrainedText,
+    DecisionType,
     EpistemicStatus,
     EvidenceAvailability,
     ExactSubjectPolicy,
     ExecutorRecommendation,
+    FindingLocationType,
     FindingSeverity,
+    FindingStatus,
     GitHubName,
     GitSha,
     GlobalId,
@@ -118,6 +148,7 @@ from zadc.types import (
     MismatchPolicy,
     ObservationSourceType,
     RefName,
+    ReviewerRecommendation,
     Sha256Digest,
     SliceId,
     StableId,
@@ -165,6 +196,10 @@ __all__ = [
     "CertificationResult",
     "EvidenceAvailability",
     "ObservationSourceType",
+    "FindingStatus",
+    "ReviewerRecommendation",
+    "DecisionType",
+    "FindingLocationType",
     # A1 envelope models
     "ArtifactEnvelope",
     "ProducerIdentity",
@@ -204,6 +239,23 @@ __all__ = [
     "EvidenceArtifact",
     # Observation (A2A-08)
     "Observation",
+    # ReviewReport (A2B1)
+    "ReviewReport",
+    "ReviewerIdentity",
+    "ReviewIndependence",
+    "ReviewSubject",
+    "ReviewedFile",
+    "ReviewInputs",
+    "FileFindingLocation",
+    "ArtifactFindingLocation",
+    "GeneralFindingLocation",
+    "FindingLocation",
+    "Finding",
+    # DecisionRecord (A2B1)
+    "DecisionRecord",
+    "HumanDecisionIdentity",
+    "DecisionSubject",
+    "AcceptedRisk",
     # Canonical JSON
     "canonical_json_bytes",
     "canonical_json_text",

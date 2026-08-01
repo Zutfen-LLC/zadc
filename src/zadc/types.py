@@ -661,6 +661,31 @@ EvidenceAvailability = Literal["available", "unavailable"]
 #: The kind of live system an observation was sourced from.
 ObservationSourceType = Literal["git", "github", "ci", "deployment", "billing", "service", "other"]
 
+#: Lifecycle status of a review finding (architecture A2B1).
+FindingStatus = Literal["open", "resolved", "accepted_risk", "invalid", "superseded"]
+
+#: A reviewer's self-reported judgment recommendation (architecture A2B1).
+#: Judgment only — never a merge authorization.
+ReviewerRecommendation = Literal[
+    "green_for_merge",
+    "green_for_review",
+    "red",
+    "blocked",
+    "inconclusive",
+]
+
+#: The kind of authenticated human decision recorded by a DecisionRecord.
+DecisionType = Literal[
+    "request_changes",
+    "approve_for_merge",
+    "reject",
+    "accept_risk",
+    "supersede",
+]
+
+#: The discriminant for a typed finding-location union (architecture A2B1).
+FindingLocationType = Literal["file", "artifact", "general"]
+
 
 # ---------------------------------------------------------------------------
 # Reusable constrained text helpers (A2A-01)
@@ -870,6 +895,11 @@ __all__ = [
     "CertificationResult",
     "EvidenceAvailability",
     "ObservationSourceType",
+    # Shared contract enums (A2B1)
+    "FindingStatus",
+    "ReviewerRecommendation",
+    "DecisionType",
+    "FindingLocationType",
     # Reusable constrained text helpers (A2A-01)
     "ConstrainedText",
     "StableId",

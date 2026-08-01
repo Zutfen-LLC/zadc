@@ -17,6 +17,12 @@ from zadc.models.completion_report import (
     VerificationClaims,
     WorkStartObservation,
 )
+from zadc.models.decision_record import (
+    AcceptedRisk,
+    DecisionRecord,
+    DecisionSubject,
+    HumanDecisionIdentity,
+)
 from zadc.models.evidence_artifact import EvidenceArtifact
 from zadc.models.observation import Observation
 from zadc.models.packet import (
@@ -30,6 +36,19 @@ from zadc.models.packet import (
     Requirement,
     VerificationRequirements,
     WorkStartAuthorization,
+)
+from zadc.models.review_report import (
+    ArtifactFindingLocation,
+    FileFindingLocation,
+    Finding,
+    FindingLocation,
+    GeneralFindingLocation,
+    ReviewedFile,
+    ReviewerIdentity,
+    ReviewIndependence,
+    ReviewInputs,
+    ReviewReport,
+    ReviewSubject,
 )
 from zadc.models.shared import (
     ArtifactReference,
@@ -80,4 +99,21 @@ __all__ = [
     "EvidenceArtifact",
     # Observation (A2A-08)
     "Observation",
+    # ReviewReport (A2B1)
+    "ReviewReport",
+    "ReviewerIdentity",
+    "ReviewIndependence",
+    "ReviewSubject",
+    "ReviewedFile",
+    "ReviewInputs",
+    "FileFindingLocation",
+    "ArtifactFindingLocation",
+    "GeneralFindingLocation",
+    "FindingLocation",
+    "Finding",
+    # DecisionRecord (A2B1)
+    "DecisionRecord",
+    "HumanDecisionIdentity",
+    "DecisionSubject",
+    "AcceptedRisk",
 ]

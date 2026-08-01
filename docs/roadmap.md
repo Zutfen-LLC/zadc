@@ -33,9 +33,16 @@ Sub-slices:
   reusable timestamp/text/enum types, subclass-preserving digest sealing,
   and a data-driven multi-schema exporter. No workflow lifecycle, policy
   evaluation, review, human decisions, provider adapters, or rendering.
-  (Current)
-- **A2B — Review and decision artifacts:** ReviewReport, DecisionRecord,
-  WorkflowBundle body models, and the global discriminated artifact union.
+  **Complete.**
+- **A2B1 — Review and decision artifacts:** ReviewReport and
+  DecisionRecord body models, the typed discriminated finding-location
+  union, and their supporting models — preserving the distinction between
+  reviewer judgment and authenticated human authority. No derived
+  lifecycle state, policy evaluation, trusted identity binding, or merge
+  authorization. (Current)
+- **A2B2 — Workflow bundle and global artifact union:** WorkflowBundle
+  body model and the global discriminated artifact union across all
+  artifact types. (Next)
 - **A3 — Rendered views:** Consumer-specific renderers for Hermes, Codex,
   Claude, CI, and human-readable output.
 

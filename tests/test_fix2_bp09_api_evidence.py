@@ -1,10 +1,10 @@
-"""FIX2-BP-09 / A2A: Package/API and evidence accuracy.
+"""FIX2-BP-09 / A2A / A2B1: Package/API and evidence accuracy.
 
 Tests that the clean-venv package smoke supplies required constants/parents,
 docs describe exact GlobalId and timestamp profiles, and the public API
-remains bounded to A1 foundation plus A2A concrete artifacts — with no
-review/decision/workflow-bundle/lifecycle/adapter/renderer/integration
-symbols (deferred to A2B and later slices).
+remains bounded to A1 foundation plus A2A concrete artifacts plus the A2B1
+review/decision artifacts — with no workflow-bundle/lifecycle/policy-eval/
+adapter/renderer/integration symbols (deferred to A2B2 and later slices).
 """
 
 from pathlib import Path
@@ -48,6 +48,10 @@ class TestPublicAPIBounded:
         "CertificationResult",
         "EvidenceAvailability",
         "ObservationSourceType",
+        "FindingStatus",
+        "ReviewerRecommendation",
+        "DecisionType",
+        "FindingLocationType",
         # A1 envelope models
         "ArtifactEnvelope",
         "ProducerIdentity",
@@ -87,6 +91,23 @@ class TestPublicAPIBounded:
         "EvidenceArtifact",
         # Observation (A2A-08)
         "Observation",
+        # ReviewReport (A2B1)
+        "ReviewReport",
+        "ReviewerIdentity",
+        "ReviewIndependence",
+        "ReviewSubject",
+        "ReviewedFile",
+        "ReviewInputs",
+        "FileFindingLocation",
+        "ArtifactFindingLocation",
+        "GeneralFindingLocation",
+        "FindingLocation",
+        "Finding",
+        # DecisionRecord (A2B1)
+        "DecisionRecord",
+        "HumanDecisionIdentity",
+        "DecisionSubject",
+        "AcceptedRisk",
         # Canonical JSON
         "canonical_json_bytes",
         "canonical_json_text",
@@ -102,9 +123,7 @@ class TestPublicAPIBounded:
     }
 
     PROHIBITED_SYMBOLS = {
-        # A2B/A3/001B+ functionality — must not exist in this slice
-        "ReviewReport",
-        "DecisionRecord",
+        # A2B2/A3/001B+ functionality — must not exist in this slice
         "WorkflowBundle",
         "LifecycleState",
         "PolicyEvaluator",
