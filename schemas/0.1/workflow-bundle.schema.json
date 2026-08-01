@@ -1,0 +1,660 @@
+{
+  "$defs": {
+    "AgentRunReference": {
+      "additionalProperties": false,
+      "description": "An identity claim about one agent run that participated in a slice instance.\n\nRecords identity claims only — ``run_id``, ``executor_actor_id``, and\nthe optional ``framework``/``model``/``provider`` fields are exactly\nwhat is claimed by whoever assembled the bundle. This is not a\ntop-level artifact: it carries no content digest, and this model does\nnot authenticate the run, the actor, the framework, the model, or the\nprovider.",
+      "properties": {
+        "executor_actor_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Executor Actor Id",
+          "type": "string"
+        },
+        "framework": {
+          "anyOf": [
+            {
+              "maxLength": 20000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Framework"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "maxLength": 20000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "maxLength": 20000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "run_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "executor_actor_id"
+      ],
+      "title": "AgentRunReference",
+      "type": "object"
+    },
+    "ArtifactReference": {
+      "additionalProperties": false,
+      "description": "A reference to another canonical ZADC artifact by ID and content digest.\n\nDistinct from :class:`EvidenceReference`, which points at an external,\nnon-ZADC evidence payload rather than another sealed ZADC artifact.",
+      "properties": {
+        "artifact_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "content_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Content Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "content_digest"
+      ],
+      "title": "ArtifactReference",
+      "type": "object"
+    },
+    "BundleBlocker": {
+      "additionalProperties": false,
+      "description": "One structural blocker surfaced by a bundle's recorded derived state.\n\nA blocker is structural derived-state output — a recorded claim about\nwhat is blocking, and why, with supporting artifact references. It is\n**not** a :class:`~zadc.models.review_report.Finding` and not a new\nauthority-bearing artifact. This model does not implement blocker\nseverity, finding closure, or policy thresholds.",
+      "properties": {
+        "artifact_refs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactReference"
+          },
+          "title": "Artifact Refs",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "blocker_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._\\-]*[A-Za-z0-9])?$",
+          "title": "Blocker Id",
+          "type": "string"
+        },
+        "code": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._\\-]*[A-Za-z0-9])?$",
+          "title": "Code",
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "blocker_id",
+        "code",
+        "statement",
+        "artifact_refs"
+      ],
+      "title": "BundleBlocker",
+      "type": "object"
+    },
+    "DerivedStateSnapshot": {
+      "additionalProperties": false,
+      "description": "A recorded snapshot of validator-computed derived state for a bundle.\n\n``state`` is an opaque stable identifier in this slice — not a\nlifecycle enum defined here. ``validator_actor_id`` and\n``validator_run_id`` are claims recorded by the bundle; no trust\nbinding is performed against them. This model does not prove that its\n``state``, ``blockers``, ``stale_artifact_refs``, or\n``next_admissible_actions`` are correct — it only records what a\nvalidator reported, structurally self-consistent within the snapshot.\nCross-checking these references against the enclosing bundle's\ntop-level artifact references is performed by\n:class:`~zadc.models.workflow_bundle.WorkflowBundle`, not by this\nmodel in isolation.",
+      "properties": {
+        "blockers": {
+          "items": {
+            "$ref": "#/$defs/BundleBlocker"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "computed_at": {
+          "format": "date-time",
+          "not": {
+            "pattern": "^.*-00:00$"
+          },
+          "pattern": "^(?!0000)[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$",
+          "title": "Computed At",
+          "type": "string"
+        },
+        "input_artifact_refs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactReference"
+          },
+          "title": "Input Artifact Refs",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "next_admissible_actions": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._\\-]*[A-Za-z0-9])?$",
+            "type": "string"
+          },
+          "title": "Next Admissible Actions",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "policy": {
+          "$ref": "#/$defs/PolicyReference"
+        },
+        "stale_artifact_refs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactReference"
+          },
+          "title": "Stale Artifact Refs",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "state": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._\\-]*[A-Za-z0-9])?$",
+          "title": "State",
+          "type": "string"
+        },
+        "validator_actor_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Validator Actor Id",
+          "type": "string"
+        },
+        "validator_run_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Validator Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "computed_at",
+        "validator_actor_id",
+        "validator_run_id",
+        "policy",
+        "input_artifact_refs",
+        "blockers",
+        "stale_artifact_refs",
+        "next_admissible_actions"
+      ],
+      "title": "DerivedStateSnapshot",
+      "type": "object"
+    },
+    "PolicyReference": {
+      "additionalProperties": false,
+      "description": "Reference to the policy governing an artifact.\n\nFields (architecture section 10, ``policy``):\n- ``policy_id``: the policy identifier (e.g. ``zutfen:zadc-policy:standard@0.1.0``).\n- ``policy_source_sha``: the trusted commit SHA the policy was loaded from.\n- ``policy_digest``: the SHA-256 digest of the policy content.",
+      "properties": {
+        "policy_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Policy Digest",
+          "type": "string"
+        },
+        "policy_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "policy_source_sha": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Policy Source Sha",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "policy_source_sha",
+        "policy_digest"
+      ],
+      "title": "PolicyReference",
+      "type": "object"
+    },
+    "ProducerIdentity": {
+      "additionalProperties": false,
+      "description": "Identity of the actor that produced an artifact.\n\nFields (architecture section 10, ``producer``):\n- ``actor_type``: human, agent, ci, validator, service.\n- ``actor_id``: URI-shaped global identifier for the actor.\n- ``run_id``: optional run/execution identifier.\n- ``model``: optional model identifier (for agent producers).\n- ``provider``: optional provider/service identifier.",
+      "properties": {
+        "actor_id": {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+            },
+            {
+              "if": {
+                "pattern": "^urn:[uU][uU][iI][dD]:"
+              },
+              "then": {
+                "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          ],
+          "minLength": 1,
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "actor_type": {
+          "enum": [
+            "human",
+            "agent",
+            "ci",
+            "validator",
+            "service"
+          ],
+          "title": "Actor Type",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+                },
+                {
+                  "if": {
+                    "pattern": "^urn:[uU][uU][iI][dD]:"
+                  },
+                  "then": {
+                    "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  }
+                }
+              ],
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        }
+      },
+      "required": [
+        "actor_type",
+        "actor_id"
+      ],
+      "title": "ProducerIdentity",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "description": "Provenance chain for an artifact.\n\nFields (architecture section 10, ``provenance``):\n- ``parent_artifact_ids``: REQUIRED immutable tuple of parent artifact IDs.\n  Accepted as ``list`` or ``tuple`` at construction; internally immutable.\n  Root artifacts must explicitly supply an empty array/tuple.\n- ``content_digest``: optional SHA-256 digest of the artifact content.\n  May be absent only before sealing.",
+      "properties": {
+        "content_digest": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Digest"
+        },
+        "parent_artifact_ids": {
+          "items": {
+            "allOf": [
+              {
+                "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+              },
+              {
+                "if": {
+                  "pattern": "^urn:[uU][uU][iI][dD]:"
+                },
+                "then": {
+                  "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                }
+              }
+            ],
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Parent Artifact Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "parent_artifact_ids"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.zutfen.com/zadc/0.1/workflow-bundle.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The canonical aggregate for one slice instance for the Zutfen Agentic Development Contract v0.1 (architecture sections 8.15, 11.6). Links referenced artifacts by stable ID and content digest and carries a recorded derived-state snapshot; it does not embed full artifacts, recompute derived state, or verify that a referenced artifact_id resolves to a sealed artifact of its collection's claimed type.",
+  "properties": {
+    "agent_run_refs": {
+      "items": {
+        "$ref": "#/$defs/AgentRunReference"
+      },
+      "title": "Agent Run Refs",
+      "type": "array"
+    },
+    "artifact_id": {
+      "allOf": [
+        {
+          "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+        },
+        {
+          "if": {
+            "pattern": "^urn:[uU][uU][iI][dD]:"
+          },
+          "then": {
+            "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        }
+      ],
+      "minLength": 1,
+      "title": "Artifact Id",
+      "type": "string"
+    },
+    "artifact_type": {
+      "const": "workflow_bundle",
+      "title": "Artifact Type",
+      "type": "string"
+    },
+    "bundle_id": {
+      "allOf": [
+        {
+          "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+        },
+        {
+          "if": {
+            "pattern": "^urn:[uU][uU][iI][dD]:"
+          },
+          "then": {
+            "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        }
+      ],
+      "minLength": 1,
+      "title": "Bundle Id",
+      "type": "string"
+    },
+    "certification_manifest_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactReference"
+      },
+      "title": "Certification Manifest Refs",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "completion_report_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactReference"
+      },
+      "title": "Completion Report Refs",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "contract_version": {
+      "const": "0.1.0",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "not": {
+        "pattern": "^.*-00:00$"
+      },
+      "pattern": "^(?!0000)[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$",
+      "title": "Created At",
+      "type": "string"
+    },
+    "decision_record_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactReference"
+      },
+      "title": "Decision Record Refs",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "derived_state": {
+      "$ref": "#/$defs/DerivedStateSnapshot"
+    },
+    "evidence_artifact_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactReference"
+      },
+      "title": "Evidence Artifact Refs",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "observation_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactReference"
+      },
+      "title": "Observation Refs",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "packet_ref": {
+      "$ref": "#/$defs/ArtifactReference"
+    },
+    "policy": {
+      "$ref": "#/$defs/PolicyReference"
+    },
+    "producer": {
+      "$ref": "#/$defs/ProducerIdentity"
+    },
+    "project_id": {
+      "allOf": [
+        {
+          "pattern": "^[a-z][a-z0-9+.\\-]*:(?:[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=]|%[0-9A-F]{2})+$"
+        },
+        {
+          "if": {
+            "pattern": "^urn:[uU][uU][iI][dD]:"
+          },
+          "then": {
+            "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        }
+      ],
+      "minLength": 1,
+      "title": "Project Id",
+      "type": "string"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance"
+    },
+    "review_report_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactReference"
+      },
+      "title": "Review Report Refs",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "schema": {
+      "const": "https://schemas.zutfen.com/zadc/0.1/artifact.schema.json",
+      "title": "Schema",
+      "type": "string"
+    },
+    "slice_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Z0-9]([A-Z0-9\\-]*[A-Z0-9])?$",
+      "title": "Slice Id",
+      "type": "string"
+    },
+    "slice_instance_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Z0-9]([A-Z0-9\\-]*[A-Z0-9])?$",
+      "title": "Slice Instance Id",
+      "type": "string"
+    },
+    "supersedes_bundle_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactReference"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "schema",
+    "contract_version",
+    "artifact_type",
+    "artifact_id",
+    "created_at",
+    "producer",
+    "project_id",
+    "slice_id",
+    "slice_instance_id",
+    "policy",
+    "provenance",
+    "bundle_id",
+    "packet_ref",
+    "agent_run_refs",
+    "completion_report_refs",
+    "certification_manifest_refs",
+    "evidence_artifact_refs",
+    "review_report_refs",
+    "decision_record_refs",
+    "observation_refs",
+    "derived_state"
+  ],
+  "title": "ZADC Workflow Bundle",
+  "type": "object"
+}

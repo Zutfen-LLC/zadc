@@ -1,10 +1,11 @@
-"""FIX2-BP-09 / A2A / A2B1: Package/API and evidence accuracy.
+"""FIX2-BP-09 / A2A / A2B1 / A2B2: Package/API and evidence accuracy.
 
 Tests that the clean-venv package smoke supplies required constants/parents,
 docs describe exact GlobalId and timestamp profiles, and the public API
 remains bounded to A1 foundation plus A2A concrete artifacts plus the A2B1
-review/decision artifacts — with no workflow-bundle/lifecycle/policy-eval/
-adapter/renderer/integration symbols (deferred to A2B2 and later slices).
+review/decision artifacts plus the A2B2 WorkflowBundle and global artifact
+union — with no lifecycle/policy-eval/adapter/renderer/integration symbols
+(deferred to A3 and later slices).
 """
 
 from pathlib import Path
@@ -108,6 +109,16 @@ class TestPublicAPIBounded:
         "HumanDecisionIdentity",
         "DecisionSubject",
         "AcceptedRisk",
+        # WorkflowBundle (A2B2)
+        "WorkflowBundle",
+        "AgentRunReference",
+        "BundleBlocker",
+        "DerivedStateSnapshot",
+        # Global artifact union (A2B2)
+        "ZadcArtifact",
+        "ZADC_ARTIFACT_ADAPTER",
+        "validate_artifact",
+        "validate_artifact_json",
         # Canonical JSON
         "canonical_json_bytes",
         "canonical_json_text",
@@ -123,8 +134,7 @@ class TestPublicAPIBounded:
     }
 
     PROHIBITED_SYMBOLS = {
-        # A2B2/A3/001B+ functionality — must not exist in this slice
-        "WorkflowBundle",
+        # A3/001B+ functionality — must not exist in this slice
         "LifecycleState",
         "PolicyEvaluator",
         "GitAdapter",

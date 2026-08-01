@@ -1,5 +1,11 @@
 """Models package for ZADC canonical artifacts."""
 
+from zadc.models.artifact_union import (
+    ZADC_ARTIFACT_ADAPTER,
+    ZadcArtifact,
+    validate_artifact,
+    validate_artifact_json,
+)
 from zadc.models.certification_manifest import CertificationManifest, LaneResult
 from zadc.models.common import (
     ArtifactEnvelope,
@@ -57,6 +63,12 @@ from zadc.models.shared import (
     ExecutorClaim,
     ObservationSource,
     VerificationEnvironment,
+)
+from zadc.models.workflow_bundle import (
+    AgentRunReference,
+    BundleBlocker,
+    DerivedStateSnapshot,
+    WorkflowBundle,
 )
 
 __all__ = [
@@ -116,4 +128,14 @@ __all__ = [
     "HumanDecisionIdentity",
     "DecisionSubject",
     "AcceptedRisk",
+    # WorkflowBundle (A2B2)
+    "WorkflowBundle",
+    "AgentRunReference",
+    "BundleBlocker",
+    "DerivedStateSnapshot",
+    # Global artifact union (A2B2)
+    "ZadcArtifact",
+    "ZADC_ARTIFACT_ADAPTER",
+    "validate_artifact",
+    "validate_artifact_json",
 ]

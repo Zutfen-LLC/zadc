@@ -4,8 +4,10 @@ This package provides the canonical artifact substrate: common envelope
 models, constrained identifiers/timestamps, deterministic canonical JSON,
 SHA-256 sealing/verification, and a reproducible JSON Schema. It also
 provides the A2A artifact models (Packet, CompletionReport,
-CertificationManifest, EvidenceArtifact, Observation) and the A2B1 review
-and decision artifact models (ReviewReport, DecisionRecord).
+CertificationManifest, EvidenceArtifact, Observation), the A2B1 review
+and decision artifact models (ReviewReport, DecisionRecord), and the A2B2
+WorkflowBundle model plus the global ``ZadcArtifact`` discriminated union
+covering all eight concrete artifacts.
 
 Public API:
     Types:
@@ -47,6 +49,14 @@ Public API:
         DecisionRecord  — An authenticated human decision claim.
         Plus their nested supporting models — see ``zadc.models``.
 
+    A2B2 workflow bundle and global artifact union:
+        WorkflowBundle       — The canonical aggregate for a slice instance.
+        ZadcArtifact         — The artifact_type-discriminated union of all
+                                eight concrete artifacts.
+        ZADC_ARTIFACT_ADAPTER, validate_artifact, validate_artifact_json —
+                                the public validation adapter.
+        Plus their nested supporting models — see ``zadc.models``.
+
     Canonical JSON:
         canonical_json_bytes(value) -> bytes
         canonical_json_text(value)  -> str
@@ -66,6 +76,12 @@ from importlib.metadata import PackageNotFoundError, version
 from zadc.canonical import CanonicalJSONTypeError, canonical_json_bytes, canonical_json_text
 from zadc.digests import compute_content_digest, seal_artifact, verify_content_digest
 from zadc.errors import DigestError, DigestMismatchError, DigestMissingError
+from zadc.models.artifact_union import (
+    ZADC_ARTIFACT_ADAPTER,
+    ZadcArtifact,
+    validate_artifact,
+    validate_artifact_json,
+)
 from zadc.models.certification_manifest import CertificationManifest, LaneResult
 from zadc.models.common import (
     ArtifactEnvelope,
@@ -123,6 +139,12 @@ from zadc.models.shared import (
     ExecutorClaim,
     ObservationSource,
     VerificationEnvironment,
+)
+from zadc.models.workflow_bundle import (
+    AgentRunReference,
+    BundleBlocker,
+    DerivedStateSnapshot,
+    WorkflowBundle,
 )
 from zadc.types import (
     CONTRACT_VERSION,
@@ -256,6 +278,16 @@ __all__ = [
     "HumanDecisionIdentity",
     "DecisionSubject",
     "AcceptedRisk",
+    # WorkflowBundle (A2B2)
+    "WorkflowBundle",
+    "AgentRunReference",
+    "BundleBlocker",
+    "DerivedStateSnapshot",
+    # Global artifact union (A2B2)
+    "ZadcArtifact",
+    "ZADC_ARTIFACT_ADAPTER",
+    "validate_artifact",
+    "validate_artifact_json",
     # Canonical JSON
     "canonical_json_bytes",
     "canonical_json_text",
