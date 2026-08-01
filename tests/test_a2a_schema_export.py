@@ -320,6 +320,42 @@ class TestCertificationManifestSchemaRejectsNestedInvalid:
         del data["subject"]["synthetic_merge_sha"]
         assert list(validator.iter_errors(data)) != []
 
+    def test_pr_head_subject_null_head_sha_rejected(self) -> None:
+        """MAJOR-2 follow-up: an explicit ``null`` (not just an absent key)
+        must also be rejected — ``required`` alone does not exclude ``null``
+        on an Optional field's ``anyOf`` schema, and canonical serialization
+        always includes optional fields as ``null`` rather than omitting them."""
+        schema = json.loads((_SCHEMA_DIR / "certification-manifest.schema.json").read_text())
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        sealed = seal_artifact(build_certification_manifest())
+        data = json.loads(canonical_json_text(sealed))
+        assert data["subject"]["subject_kind"] == "pr_head"
+        data["subject"]["head_sha"] = None
+        assert list(validator.iter_errors(data)) != []
+
+    def test_synthetic_merge_subject_null_supporting_shas_rejected(self) -> None:
+        """MAJOR-2 follow-up: an explicit ``null`` for each supporting SHA
+        must independently be rejected."""
+        schema = json.loads((_SCHEMA_DIR / "certification-manifest.schema.json").read_text())
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        sha = "c" * 40
+        manifest = build_certification_manifest(
+            subject={
+                "repository_id": "github:Zutfen-LLC/zadc",
+                "subject_kind": "synthetic_merge",
+                "subject_sha": sha,
+                "base_sha": "a" * 40,
+                "head_sha": "b" * 40,
+                "synthetic_merge_sha": sha,
+            }
+        )
+        sealed = seal_artifact(manifest)
+        for field in ("base_sha", "head_sha", "synthetic_merge_sha"):
+            data = json.loads(canonical_json_text(sealed))
+            data["subject"][field] = None
+            errors = list(validator.iter_errors(data))
+            assert errors != [], f"expected rejection when subject.{field} is null"
+
     def test_result_pass_with_failing_mandatory_lane_rejected(self) -> None:
         """MAJOR-2: result/lane if/then now surfaces the mandatory-lane pass gate."""
         schema = json.loads((_SCHEMA_DIR / "certification-manifest.schema.json").read_text())
@@ -379,6 +415,47 @@ class TestEvidenceArtifactSchemaRejectsNestedInvalid:
         data = json.loads(canonical_json_text(sealed))
         del data["subject"]["head_sha"]
         assert list(validator.iter_errors(data)) != []
+
+    def test_pr_head_subject_null_head_sha_rejected(self) -> None:
+        """MAJOR-2 follow-up: the shared ExactSubject null-prohibition also
+        applies via evidence-artifact.schema.json."""
+        schema = json.loads((_SCHEMA_DIR / "evidence-artifact.schema.json").read_text())
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        artifact = build_evidence_artifact(
+            subject={
+                "repository_id": "github:Zutfen-LLC/zadc",
+                "subject_kind": "pr_head",
+                "subject_sha": "b" * 40,
+                "head_sha": "b" * 40,
+            }
+        )
+        sealed = seal_artifact(artifact)
+        data = json.loads(canonical_json_text(sealed))
+        data["subject"]["head_sha"] = None
+        assert list(validator.iter_errors(data)) != []
+
+    def test_synthetic_merge_subject_null_supporting_shas_rejected(self) -> None:
+        """MAJOR-2 follow-up: the shared ExactSubject null-prohibition also
+        applies via evidence-artifact.schema.json, for each supporting SHA."""
+        schema = json.loads((_SCHEMA_DIR / "evidence-artifact.schema.json").read_text())
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        sha = "c" * 40
+        artifact = build_evidence_artifact(
+            subject={
+                "repository_id": "github:Zutfen-LLC/zadc",
+                "subject_kind": "synthetic_merge",
+                "subject_sha": sha,
+                "base_sha": "a" * 40,
+                "head_sha": "b" * 40,
+                "synthetic_merge_sha": sha,
+            }
+        )
+        sealed = seal_artifact(artifact)
+        for field in ("base_sha", "head_sha", "synthetic_merge_sha"):
+            data = json.loads(canonical_json_text(sealed))
+            data["subject"][field] = None
+            errors = list(validator.iter_errors(data))
+            assert errors != [], f"expected rejection when subject.{field} is null"
 
 
 class TestReconciliationSchemaRejectsNestedInvalid:

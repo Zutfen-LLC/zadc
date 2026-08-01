@@ -15,6 +15,13 @@
             ]
           },
           "then": {
+            "properties": {
+              "head_sha": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            },
             "required": [
               "head_sha"
             ]
@@ -32,6 +39,23 @@
             ]
           },
           "then": {
+            "properties": {
+              "base_sha": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "head_sha": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "synthetic_merge_sha": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            },
             "required": [
               "base_sha",
               "head_sha",

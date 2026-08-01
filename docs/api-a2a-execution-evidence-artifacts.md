@@ -62,10 +62,14 @@ that emit exact JSON Schema `enum` entries with no runtime-only values.
   a `pr_head` subject requires `head_sha == subject_sha`; a
   `synthetic_merge` subject requires all three of `base_sha`, `head_sha`,
   and `synthetic_merge_sha`, with `subject_sha == synthetic_merge_sha`. The
-  *presence* half of each gate (`pr_head` → `head_sha` present;
-  `synthetic_merge` → all three present) is also surfaced in the generated
-  JSON Schema as a model-owned `allOf`/`if`/`then` block; the *equality*
-  half (`head_sha == subject_sha`, etc.) is runtime-only — see
+  *presence-and-non-null* half of each gate (`pr_head` → `head_sha` present
+  and not `null`; `synthetic_merge` → all three present and not `null`) is
+  also surfaced in the generated JSON Schema as a model-owned
+  `allOf`/`if`/`then` block — the `then` branch pairs `required` with an
+  explicit `"not": {"type": "null"}` on each gated property, since
+  `required` alone only checks key presence and canonical serialization
+  always includes optional fields as `null` rather than omitting them; the
+  *equality* half (`head_sha == subject_sha`, etc.) is runtime-only — see
   [Runtime-only invariants](#runtime-only-invariants).
 - **`VerificationEnvironment`** — the trusted runner/OS/architecture/
   toolchain/container-digest record for a certification run.

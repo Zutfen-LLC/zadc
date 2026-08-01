@@ -26,16 +26,25 @@ from zadc.types import (
     coerce_tuple,
 )
 
+#: Forbids the ``null`` branch of an Optional field's ``anyOf`` schema.
+#: ``required`` alone only checks key presence — since Optional fields are
+#: typed ``anyOf: [<type>, {"type": "null"}]``, a present-but-null value
+#: would otherwise still satisfy ``required``. Combined with the field's
+#: own base schema (also applied, since JSON Schema keywords are additive),
+#: this forces the value to be a real (pattern-matching) string.
+_NOT_NULL: dict[str, Any] = {"not": {"type": "null"}}
+
 
 def _exact_subject_json_schema_extra(schema: dict[str, Any], model: type[BaseModel]) -> None:
     """Model-owned hook surfacing the subject-kind presence gates.
 
     JSON Schema can express that ``pr_head``/``synthetic_merge`` REQUIRE
-    their supporting SHA fields to be present. It cannot express that
-    ``head_sha`` (or ``synthetic_merge_sha``) EQUALS ``subject_sha`` — a
-    comparison between two arbitrary sibling string values is outside
-    standard JSON Schema's vocabulary. Those equality checks remain
-    runtime-only, enforced by ``ExactSubject._check_subject_kind_invariants``.
+    their supporting SHA fields to be present AND non-null. It cannot
+    express that ``head_sha`` (or ``synthetic_merge_sha``) EQUALS
+    ``subject_sha`` — a comparison between two arbitrary sibling string
+    values is outside standard JSON Schema's vocabulary. Those equality
+    checks remain runtime-only, enforced by
+    ``ExactSubject._check_subject_kind_invariants``.
     """
     schema["allOf"] = [
         {
@@ -43,14 +52,24 @@ def _exact_subject_json_schema_extra(schema: dict[str, Any], model: type[BaseMod
                 "properties": {"subject_kind": {"const": "pr_head"}},
                 "required": ["subject_kind"],
             },
-            "then": {"required": ["head_sha"]},
+            "then": {
+                "required": ["head_sha"],
+                "properties": {"head_sha": _NOT_NULL},
+            },
         },
         {
             "if": {
                 "properties": {"subject_kind": {"const": "synthetic_merge"}},
                 "required": ["subject_kind"],
             },
-            "then": {"required": ["base_sha", "head_sha", "synthetic_merge_sha"]},
+            "then": {
+                "required": ["base_sha", "head_sha", "synthetic_merge_sha"],
+                "properties": {
+                    "base_sha": _NOT_NULL,
+                    "head_sha": _NOT_NULL,
+                    "synthetic_merge_sha": _NOT_NULL,
+                },
+            },
         },
     ]
 
