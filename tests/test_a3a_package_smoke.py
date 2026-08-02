@@ -25,12 +25,13 @@ from zadc.rendering import RENDERED_VIEW_SCHEMA_ID
 required_names = [
     "RenderConsumer", "RendererReference", "RenderedView", "RendererProtocol",
     "RendererRegistry", "HumanMarkdownRenderer", "CiJsonRenderer",
+    "HermesRenderer",
     "DEFAULT_RENDERER_REGISTRY", "render_artifact", "RendererNotFoundError",
 ]
 for name in required_names:
     assert hasattr(zadc, name), f"zadc is missing public name: {name}"
 
-assert set(zadc.DEFAULT_RENDERER_REGISTRY.consumers) == {"human", "ci"}
+assert set(zadc.DEFAULT_RENDERER_REGISTRY.consumers) == {"human", "ci", "hermes"}
 
 SHA_A = "a" * 40
 SHA_B = "b" * 40
@@ -164,14 +165,21 @@ for artifact in [packet, review_report, decision_record, workflow_bundle]:
     assert payload["non_authoritative"] is True
     assert payload["source_artifact"]["artifact_id"] == sealed.artifact_id
 
+    hermes = zadc.render_artifact(sealed, rendered_at=render_at, consumer="hermes")
+    assert hermes.non_authoritative is True
+    assert hermes.source_ref == human.source_ref
+    assert hermes.media_type == "text/markdown"
+    assert hermes.renderer.renderer_id == "zadc-hermes-markdown"
+    assert hermes.content.startswith("# NON-AUTHORITATIVE HERMES RENDERED VIEW")
+
     # Source is byte-identical after rendering.
     assert before == zadc.canonical_json_text(sealed)
     zadc.verify_content_digest(sealed)
 
 # Reserved consumers have no renderer and fail explicitly.
 try:
-    zadc.DEFAULT_RENDERER_REGISTRY.get("hermes")
-    raise SystemExit("expected RendererNotFoundError for hermes")
+    zadc.DEFAULT_RENDERER_REGISTRY.get("codex")
+    raise SystemExit("expected RendererNotFoundError for codex")
 except zadc.RendererNotFoundError:
     pass
 

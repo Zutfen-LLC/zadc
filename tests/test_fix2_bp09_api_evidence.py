@@ -121,7 +121,7 @@ class TestPublicAPIBounded:
         "ZADC_ARTIFACT_ADAPTER",
         "validate_artifact",
         "validate_artifact_json",
-        # Rendering foundation (A3A)
+        # Rendering foundation (A3A/A3B1)
         "RenderConsumer",
         "RendererReference",
         "RenderedView",
@@ -129,6 +129,7 @@ class TestPublicAPIBounded:
         "RendererRegistry",
         "HumanMarkdownRenderer",
         "CiJsonRenderer",
+        "HermesRenderer",
         "DEFAULT_RENDERER_REGISTRY",
         "render_artifact",
         "RendererNotFoundError",
@@ -148,14 +149,14 @@ class TestPublicAPIBounded:
 
     PROHIBITED_SYMBOLS = {
         # A3/001B+ functionality — must not exist in this slice. A3A renderer
-        # symbols (human/ci) are now permitted; the agent-specific renderers,
-        # lifecycle evaluators, provider adapters, and integrations remain
-        # absent (deferred to A3B and later slices).
+        # symbols (human/ci) and A3B1 (hermes) are now permitted; the remaining
+        # agent-specific renderers, lifecycle evaluators, provider adapters,
+        # and integrations remain absent (deferred to A3B2/A3B3 and later
+        # slices).
         "LifecycleState",
         "PolicyEvaluator",
         "GitAdapter",
         "GitHubAdapter",
-        "HermesRenderer",
         "CodexRenderer",
         "ClaudeRenderer",
         "EngramIntegration",

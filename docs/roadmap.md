@@ -52,9 +52,15 @@ Sub-slices:
   projection record (strict, frozen, bound to a verified sealed source by
   exact ID and digest), `RendererProtocol`, immutable `RendererRegistry`,
   `render_artifact` entrypoint, a human-readable Markdown renderer, and a
-  machine-neutral CI canonical-JSON renderer. **Current.**
-- **A3B — Agent-specific renderers:** Hermes, Codex, and Claude consumer
-  renderers built on the A3A foundation. (Next)
+  machine-neutral CI canonical-JSON renderer. **Complete.**
+- **A3B1 — Hermes renderer:** A deterministic Hermes-specific Markdown
+  renderer built on the A3A foundation. `HermesRenderer` gives Hermes an
+  explicit instruction-versus-data boundary: a Packet exposes its sealed
+  contract as the only potentially executable source content, while every
+  other artifact is rendered exclusively as non-executable context.
+  **Current.**
+- **A3B — Agent-specific renderers:** Codex and Claude consumer renderers
+  built on the A3A foundation. A3B2 (Codex) is next. (Next)
 
 ### ZADC-001B — Workflow bundles and derived lifecycle
 

@@ -38,6 +38,7 @@ from zadc import (
 from zadc.canonical import canonical_json_text
 from zadc.models.packet import Packet
 from zadc.rendering.ci import CI_SOURCE_ARTIFACT_KEY, CiJsonRenderer, _CiPayload
+from zadc.rendering.hermes import HermesRenderer
 from zadc.rendering.human import (
     HumanMarkdownRenderer,
     _code_fence_for,
@@ -141,6 +142,7 @@ class TestPublicApi:
             "RendererRegistry",
             "HumanMarkdownRenderer",
             "CiJsonRenderer",
+            "HermesRenderer",
             "DEFAULT_RENDERER_REGISTRY",
             "render_artifact",
             "RendererNotFoundError",
@@ -149,7 +151,7 @@ class TestPublicApi:
             assert hasattr(zadc, name)
 
     def test_agent_specific_renderers_absent(self) -> None:
-        for name in ["HermesRenderer", "CodexRenderer", "ClaudeRenderer"]:
+        for name in ["CodexRenderer", "ClaudeRenderer"]:
             assert not hasattr(zadc, name)
 
     def test_render_consumer_vocabulary(self) -> None:
@@ -287,11 +289,12 @@ class TestChronology:
 
 class TestRendererRegistry:
     def test_default_registry_contains_exactly_two_renderers(self) -> None:
-        assert set(DEFAULT_RENDERER_REGISTRY.consumers) == {"human", "ci"}
-        assert len(DEFAULT_RENDERER_REGISTRY) == 2
+        assert set(DEFAULT_RENDERER_REGISTRY.consumers) == {"human", "ci", "hermes"}
+        assert len(DEFAULT_RENDERER_REGISTRY) == 3
         assert "human" in DEFAULT_RENDERER_REGISTRY
         assert "ci" in DEFAULT_RENDERER_REGISTRY
-        assert "hermes" not in DEFAULT_RENDERER_REGISTRY
+        assert "hermes" in DEFAULT_RENDERER_REGISTRY
+        assert "codex" not in DEFAULT_RENDERER_REGISTRY
 
     def test_get_returns_correct_renderer(self) -> None:
         human = DEFAULT_RENDERER_REGISTRY.get("human")
@@ -310,7 +313,7 @@ class TestRendererRegistry:
         )
 
     def test_get_unregistered_consumer_raises(self) -> None:
-        for consumer in ("hermes", "codex", "claude"):
+        for consumer in ("codex", "claude"):
             with pytest.raises(RendererNotFoundError, match=consumer):
                 DEFAULT_RENDERER_REGISTRY.get(consumer)
 
@@ -331,7 +334,7 @@ class TestRendererRegistry:
         with pytest.raises((AttributeError, TypeError)):
             registry.new_field = True  # type: ignore[attr-defined]
 
-    @pytest.mark.parametrize("consumer", ["human", "ci"])
+    @pytest.mark.parametrize("consumer", ["human", "ci", "hermes"])
     @pytest.mark.parametrize("attribute", ["consumer", "media_type", "renderer"])
     def test_default_registration_metadata_is_immutable(
         self, consumer: RenderConsumer, attribute: str
@@ -342,7 +345,9 @@ class TestRendererRegistry:
             setattr(registered, attribute, "replacement")
         assert registered.render_content(_sealed(build_packet)) == before
 
-    @pytest.mark.parametrize("renderer", [HumanMarkdownRenderer(), CiJsonRenderer()])
+    @pytest.mark.parametrize(
+        "renderer", [HumanMarkdownRenderer(), CiJsonRenderer(), HermesRenderer()]
+    )
     @pytest.mark.parametrize("attribute", ["consumer", "media_type", "renderer"])
     def test_builtin_renderer_metadata_is_immutable(
         self, renderer: RendererProtocol, attribute: str
@@ -395,6 +400,7 @@ class TestRendererRegistry:
     def test_renderers_satisfy_protocol(self) -> None:
         assert isinstance(HumanMarkdownRenderer(), RendererProtocol)
         assert isinstance(CiJsonRenderer(), RendererProtocol)
+        assert isinstance(HermesRenderer(), RendererProtocol)
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +427,7 @@ _IDENTITY_OVERRIDES: list[dict[str, Any]] = [
 ]
 
 
-@pytest.mark.parametrize("renderer_cls", [HumanMarkdownRenderer, CiJsonRenderer])
+@pytest.mark.parametrize("renderer_cls", [HumanMarkdownRenderer, CiJsonRenderer, HermesRenderer])
 @pytest.mark.parametrize("identity_override", _IDENTITY_OVERRIDES)
 def test_builtin_constructors_reject_identity_overrides(
     renderer_cls: type, identity_override: dict[str, Any]
@@ -432,7 +438,7 @@ def test_builtin_constructors_reject_identity_overrides(
 
 @pytest.mark.parametrize(
     "renderer_cls",
-    [HumanMarkdownRenderer, CiJsonRenderer],
+    [HumanMarkdownRenderer, CiJsonRenderer, HermesRenderer],
 )
 def test_builtin_constructors_accept_no_arguments(renderer_cls: type) -> None:
     # The argument-free constructor is the only construction surface.
@@ -486,7 +492,7 @@ def test_ci_content_identity_equals_view_metadata_for_explicit_registry() -> Non
 
 def test_default_registry_rendering_is_deterministic() -> None:
     sealed = _sealed(build_packet)
-    consumers: tuple[RenderConsumer, ...] = ("human", "ci")
+    consumers: tuple[RenderConsumer, ...] = ("human", "ci", "hermes")
     for consumer in consumers:
         first = render_artifact(sealed, rendered_at=RENDER_AT, consumer=consumer).content
         second = render_artifact(sealed, rendered_at=RENDER_AT, consumer=consumer).content

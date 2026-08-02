@@ -13,16 +13,17 @@ Defines:
   construction; there is no mutable registration surface afterward. Lookup
   failure raises :class:`RendererNotFoundError`.
 - :data:`DEFAULT_RENDERER_REGISTRY` — the registry containing exactly
-  :class:`~zadc.rendering.human.HumanMarkdownRenderer` and
-  :class:`~zadc.rendering.ci.CiJsonRenderer`.
+  :class:`~zadc.rendering.human.HumanMarkdownRenderer`,
+  :class:`~zadc.rendering.ci.CiJsonRenderer`, and
+  :class:`~zadc.rendering.hermes.HermesRenderer`.
 - :func:`render_artifact` — the public entrypoint that verifies the source
   content digest, selects a renderer by consumer, renders content, and
   constructs a bound :class:`~zadc.rendering.models.RenderedView`.
 
 No entry-point discovery, dynamic imports, plugins, filesystem scanning, or
-network loading is performed. ``hermes``, ``codex``, and ``claude`` are part
-of the :data:`~zadc.rendering.models.RenderConsumer` vocabulary but have no
-registered renderer in A3A; requests for them fail explicitly.
+network loading is performed. ``codex`` and ``claude`` are part of the
+:data:`~zadc.rendering.models.RenderConsumer` vocabulary but have no
+registered renderer in A3B1; requests for them fail explicitly.
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ from zadc.digests import verify_content_digest
 from zadc.models.artifact_union import ZadcArtifact
 from zadc.models.shared import ArtifactReference
 from zadc.rendering.ci import CiJsonRenderer
+from zadc.rendering.hermes import HermesRenderer
 from zadc.rendering.human import HumanMarkdownRenderer
 from zadc.rendering.models import (
     RENDERED_VIEW_SCHEMA_ID,
@@ -147,7 +149,7 @@ class RendererRegistry:
         Raises:
             RendererNotFoundError: If no renderer is registered for the
                 requested consumer (including the reserved-but-unimplemented
-                ``hermes``, ``codex``, and ``claude`` consumers).
+                ``codex`` and ``claude`` consumers).
         """
         if consumer in self._renderers:
             return self._renderers[consumer]
@@ -165,11 +167,11 @@ class RendererRegistry:
         return consumer in self._renderers
 
 
-#: The default registry for A3A: exactly the human Markdown and CI JSON
-#: renderers. ``hermes``, ``codex``, and ``claude`` are deliberately absent
-#: until A3B.
+#: The default registry for A3B1: exactly the human Markdown, CI JSON, and
+#: Hermes Markdown renderers, in deterministic registration order. ``codex``
+#: and ``claude`` are deliberately absent until A3B2/A3B3.
 DEFAULT_RENDERER_REGISTRY: RendererRegistry = RendererRegistry(
-    (HumanMarkdownRenderer(), CiJsonRenderer())
+    (HumanMarkdownRenderer(), CiJsonRenderer(), HermesRenderer())
 )
 
 
