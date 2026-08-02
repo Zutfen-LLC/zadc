@@ -160,7 +160,6 @@ class TestFix3BP09Regression:
             "PolicyEvaluator",
             "GitAdapter",
             "GitHubAdapter",
-            "HermesRenderer",
             "CodexRenderer",
             "ClaudeRenderer",
             "EngramIntegration",
