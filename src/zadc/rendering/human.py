@@ -6,10 +6,10 @@ no source-controlled prose can alter the surrounding document structure:
 
 - A fixed, renderer-authored header carries the non-authoritative notice,
   render metadata, and the verified source identity/producer/provenance/
-  policy fields as labeled inline-code values. Every displayed value that
-  originates from the source is wrapped in inline code (with a
-  backtick-run-aware fence), so pipes, headings, HTML, links, and other
-  Markdown metacharacters cannot escape into the document structure.
+  policy fields as labeled inline-code values. Every displayed source value
+  uses a single-line JSON string escape before a backtick-run-aware fence is
+  selected. Pipes, headings, HTML, links, line breaks, and other Markdown
+  content cannot escape into the document structure.
 - The complete canonical JSON of the source artifact is rendered inside a
   single dynamically-fenced code block. The fence length is chosen strictly
   longer than the longest run of backticks anywhere in that JSON, so
@@ -29,6 +29,8 @@ source content digest.
 
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass
 from typing import cast
 
 from zadc.canonical import canonical_json_text
@@ -52,17 +54,24 @@ def _max_backtick_run(text: str) -> int:
 
 
 def _inline_code(value: str) -> str:
-    """Render ``value`` as Markdown inline code safe for any content.
+    """Render ``value`` as escaped, single-line Markdown inline code.
 
-    Uses a backtick fence one tick longer than the longest backtick run in the
-    value, with a single space of padding when the value begins or ends with a
-    backtick so the inline-code span is unambiguous. This neutralizes pipes,
-    headings, HTML, links, and backticks in the displayed value.
+    First, encode the value as a JSON string and remove the outer quotes. This
+    makes line breaks and control characters visible escape sequences. Then,
+    use a backtick fence one tick longer than the longest backtick run in the
+    escaped value. Add one space of padding when the escaped value starts or
+    ends with a backtick. This keeps the inline-code span unambiguous.
     """
-    run = _max_backtick_run(value)
+    escaped = _escape_summary_value(value)
+    run = _max_backtick_run(escaped)
     fence = "`" * (run + 1)
-    pad = " " if value and (value[0] == "`" or value[-1] == "`") else ""
-    return f"{fence}{pad}{value}{pad}{fence}"
+    pad = " " if escaped and (escaped[0] == "`" or escaped[-1] == "`") else ""
+    return f"{fence}{pad}{escaped}{pad}{fence}"
+
+
+def _escape_summary_value(value: str) -> str:
+    """Return a reversible, single-line JSON string escape without outer quotes."""
+    return json.dumps(value, ensure_ascii=False)[1:-1]
 
 
 def _code_fence_for(text: str) -> str:
@@ -119,6 +128,7 @@ _CAVEATS: dict[str, str] = {
 }
 
 
+@dataclass(frozen=True, slots=True)
 class HumanMarkdownRenderer:
     """Deterministic human-readable Markdown renderer for all eight artifacts.
 

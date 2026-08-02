@@ -102,9 +102,12 @@ A runtime-checkable, narrowly typed protocol every renderer satisfies:
 
 ```python
 class RendererProtocol(Protocol):
-    consumer: RenderConsumer
-    media_type: MediaType
-    renderer: RendererReference
+    @property
+    def consumer(self) -> RenderConsumer: ...
+    @property
+    def media_type(self) -> MediaType: ...
+    @property
+    def renderer(self) -> RendererReference: ...
     def render_content(self, artifact: ZadcArtifact) -> str: ...
 ```
 
@@ -116,9 +119,13 @@ renderer calls the current clock (`rendered_at` is explicit caller input).
 
 ### `RendererRegistry`
 
-An immutable registry mapping consumers to renderer instances.
+An immutable registry mapping consumers to immutable registration snapshots.
 
 - Constructed from an explicit, finite renderer sequence.
+- Snapshots the consumer, media type, renderer identity, and render callable.
+- Does not expose the supplied renderer object.
+- Later metadata changes to a supplied custom renderer do not change the
+  registration snapshot.
 - Rejects **duplicate** consumer registrations at construction (`ValueError`).
 - Exposes **no** mutable registration surface afterward.
 - Lookup for an unregistered consumer raises `RendererNotFoundError` (this
@@ -129,7 +136,7 @@ An immutable registry mapping consumers to renderer instances.
 
 ```python
 registry = RendererRegistry((HumanMarkdownRenderer(), CiJsonRenderer()))
-registry.get("human")      # -> HumanMarkdownRenderer
+registry.get("human")      # -> immutable RendererProtocol registration
 registry.get("hermes")     # -> raises RendererNotFoundError
 registry.consumers         # -> ("human", "ci")
 ```
@@ -174,7 +181,11 @@ all eight artifact variants as deterministic Markdown:
 
 - Begins with a prominent **NON-AUTHORITATIVE RENDERED VIEW** notice.
 - Displays the verified source identity, producer, provenance, and policy as
-  labeled inline-code values.
+  labeled inline-code values. Each summary value uses JSON string escaping
+  without the outer JSON quotes. Literal newlines, carriage returns, tabs,
+  backslashes, quotes, and control characters appear as visible single-line
+  escape sequences. The renderer selects the inline-code backtick fence after
+  this escaping step.
 - Renders the **complete canonical JSON** of the source artifact inside a
   single **dynamically-fenced** code block. The fence length is chosen
   strictly longer than the longest run of backticks anywhere in that JSON, so
@@ -219,6 +230,12 @@ view = render_artifact(sealed, rendered_at=at, consumer="ci")
 payload = json.loads(view.content)
 payload["source_artifact"] == json.loads(canonical_json_text(sealed))  # True
 ```
+
+The inner CI payload does not declare a `schema` field. It is not a
+`RenderedView` record. The enclosing `RenderedView.schema` field continues to
+identify `rendered-view.schema.json`. The complete canonical JSON under
+`source_artifact` preserves each exact source value. Human summary escaping
+does not change this canonical source payload.
 
 The renderer emits no ANSI text, Markdown, environment-specific paths,
 wall-clock values, GitHub URLs, or provider-specific status conclusions, and

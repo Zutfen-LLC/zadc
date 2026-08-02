@@ -19,16 +19,14 @@ Like the human renderer, this method is invoked only after
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal, cast
-
-from pydantic import Field
 
 from zadc.canonical import canonical_json_text
 from zadc.models.artifact_union import ZadcArtifact
 from zadc.models.common import PolicyReference, ProducerIdentity, Provenance, _ZadcModel
 from zadc.models.shared import ArtifactReference
 from zadc.rendering.models import (
-    RENDERED_VIEW_SCHEMA_ID,
     RENDERED_VIEW_VERSION,
     RenderConsumer,
     RendererReference,
@@ -60,7 +58,6 @@ class _CiPayload(_ZadcModel):
     prevents arbitrary extension keys.
     """
 
-    schema_uri: Literal[RENDERED_VIEW_SCHEMA_ID] = Field(alias="schema")  # type: ignore[valid-type]
     non_authoritative: Literal[True]
     consumer: Literal["ci"]
     renderer: RendererReference
@@ -76,6 +73,7 @@ class _CiPayload(_ZadcModel):
     source_artifact: ZadcArtifact
 
 
+@dataclass(frozen=True, slots=True)
 class CiJsonRenderer:
     """Deterministic machine-neutral canonical-JSON renderer for all eight artifacts.
 
@@ -100,7 +98,6 @@ class CiJsonRenderer:
         # digest. The cast records that precondition for the type checker.
         verified_digest = cast("str", artifact.provenance.content_digest)
         payload = _CiPayload(
-            schema=RENDERED_VIEW_SCHEMA_ID,
             non_authoritative=True,
             consumer="ci",
             renderer=_CI_RENDERER_REFERENCE,

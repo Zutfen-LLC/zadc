@@ -20,6 +20,7 @@ import json
 from datetime import datetime, timezone
 
 import zadc
+from zadc.rendering import RENDERED_VIEW_SCHEMA_ID
 
 required_names = [
     "RenderConsumer", "RendererReference", "RenderedView", "RendererProtocol",
@@ -158,6 +159,8 @@ for artifact in [packet, review_report, decision_record, workflow_bundle]:
     assert ci.source_ref == human.source_ref
     assert ci.media_type == "application/json"
     payload = json.loads(ci.content)
+    assert ci.schema_uri == RENDERED_VIEW_SCHEMA_ID
+    assert "schema" not in payload
     assert payload["non_authoritative"] is True
     assert payload["source_artifact"]["artifact_id"] == sealed.artifact_id
 

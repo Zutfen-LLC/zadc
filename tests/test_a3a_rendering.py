@@ -41,6 +41,7 @@ from zadc.rendering.ci import CI_SOURCE_ARTIFACT_KEY, CiJsonRenderer, _CiPayload
 from zadc.rendering.human import (
     HumanMarkdownRenderer,
     _code_fence_for,
+    _escape_summary_value,
     _inline_code,
     _max_backtick_run,
 )
@@ -111,6 +112,18 @@ class _ExplodingRenderer:
 
     def render_content(self, artifact: Any) -> str:
         raise AssertionError("renderer must not run before source verification")
+
+
+class _MutableRenderer:
+    """A mutable renderer used to test registry metadata snapshots."""
+
+    def __init__(self) -> None:
+        self.consumer: RenderConsumer = "human"
+        self.media_type = "text/markdown"
+        self.renderer = RendererReference(renderer_id="mutable-renderer", renderer_version="0.0.1")
+
+    def render_content(self, artifact: Any) -> str:
+        return f"custom:{artifact.artifact_id}"
 
 
 # ---------------------------------------------------------------------------
@@ -281,8 +294,20 @@ class TestRendererRegistry:
         assert "hermes" not in DEFAULT_RENDERER_REGISTRY
 
     def test_get_returns_correct_renderer(self) -> None:
-        assert isinstance(DEFAULT_RENDERER_REGISTRY.get("human"), HumanMarkdownRenderer)
-        assert isinstance(DEFAULT_RENDERER_REGISTRY.get("ci"), CiJsonRenderer)
+        human = DEFAULT_RENDERER_REGISTRY.get("human")
+        ci = DEFAULT_RENDERER_REGISTRY.get("ci")
+        assert isinstance(human, RendererProtocol)
+        assert human.consumer == "human"
+        assert human.media_type == "text/markdown"
+        assert human.renderer == RendererReference(
+            renderer_id="zadc-human-markdown", renderer_version="0.1.0"
+        )
+        assert isinstance(ci, RendererProtocol)
+        assert ci.consumer == "ci"
+        assert ci.media_type == "application/json"
+        assert ci.renderer == RendererReference(
+            renderer_id="zadc-ci-json", renderer_version="0.1.0"
+        )
 
     def test_get_unregistered_consumer_raises(self) -> None:
         for consumer in ("hermes", "codex", "claude"):
@@ -305,6 +330,57 @@ class TestRendererRegistry:
         # No public mutation surface exists; attribute writes to __slots__ fail.
         with pytest.raises((AttributeError, TypeError)):
             registry.new_field = True  # type: ignore[attr-defined]
+
+    @pytest.mark.parametrize("consumer", ["human", "ci"])
+    @pytest.mark.parametrize("attribute", ["consumer", "media_type", "renderer"])
+    def test_default_registration_metadata_is_immutable(
+        self, consumer: RenderConsumer, attribute: str
+    ) -> None:
+        registered = DEFAULT_RENDERER_REGISTRY.get(consumer)
+        before = registered.render_content(_sealed(build_packet))
+        with pytest.raises((AttributeError, TypeError)):
+            setattr(registered, attribute, "replacement")
+        assert registered.render_content(_sealed(build_packet)) == before
+
+    @pytest.mark.parametrize("renderer", [HumanMarkdownRenderer(), CiJsonRenderer()])
+    @pytest.mark.parametrize("attribute", ["consumer", "media_type", "renderer"])
+    def test_builtin_renderer_metadata_is_immutable(
+        self, renderer: RendererProtocol, attribute: str
+    ) -> None:
+        with pytest.raises((AttributeError, TypeError)):
+            setattr(renderer, attribute, "replacement")
+
+    def test_custom_registration_is_immutable_and_snapshots_metadata(self) -> None:
+        supplied = _MutableRenderer()
+        registry = RendererRegistry((supplied,))
+        registered = registry.get("human")
+
+        for attribute in ("consumer", "media_type", "renderer"):
+            with pytest.raises((AttributeError, TypeError)):
+                setattr(registered, attribute, "replacement")
+
+        supplied.consumer = "ci"
+        supplied.media_type = "application/json"
+        supplied.renderer = RendererReference(
+            renderer_id="changed-renderer", renderer_version="9.9.9"
+        )
+
+        assert registry.consumers == ("human",)
+        assert registered.consumer == "human"
+        assert registered.media_type == "text/markdown"
+        assert registered.renderer == RendererReference(
+            renderer_id="mutable-renderer", renderer_version="0.0.1"
+        )
+
+        view = render_artifact(
+            _sealed(build_packet),
+            rendered_at=RENDER_AT,
+            consumer="human",
+            registry=registry,
+        )
+        assert view.consumer == registered.consumer
+        assert view.media_type == registered.media_type
+        assert view.renderer == registered.renderer
 
     def test_custom_registry_used_by_render_artifact(self) -> None:
         custom = RendererRegistry((_ExplodingRenderer(),))
@@ -431,6 +507,64 @@ class TestHumanMarkdownRenderer:
         fence_len = _fence_length(content)
         assert fence_len > _max_backtick_run(body)
 
+    def test_producer_summary_values_are_single_line_and_escaped(self) -> None:
+        from zadc import ProducerIdentity
+
+        model = (
+            "model-start\n# MODEL HEADING\r> model quote\t| a | b | "
+            "<script>model</script> [model](https://evil.example/model) "
+            '\\path "quoted" ```model-fence```\u0001'
+        )
+        provider = (
+            "provider-start\n## PROVIDER HEADING\r> provider quote\n"
+            "- provider list\t| x | y | "
+            "<table><tr><td>provider</td></tr></table> "
+            '[provider](https://evil.example/provider) \\provider "provider-quoted" '
+            "````provider-fence````\u0002"
+        )
+        sealed = seal_artifact(
+            build_packet(
+                producer=ProducerIdentity(
+                    actor_type="agent",
+                    actor_id="zutfen:agent:hostile",
+                    model=model,
+                    provider=provider,
+                )
+            )
+        )
+
+        content = HumanMarkdownRenderer().render_content(sealed)
+        outside = _strip_code_blocks(content)
+        model_line = next(line for line in outside.splitlines() if line.startswith("- **Model:**"))
+        provider_line = next(
+            line for line in outside.splitlines() if line.startswith("- **Provider:**")
+        )
+
+        assert model not in outside
+        assert provider not in outside
+        assert "\r" not in outside
+        for summary_line in (model_line, provider_line):
+            assert "\\n" in summary_line
+            assert "\\r" in summary_line
+            assert "\\t" in summary_line
+        assert "\\\\path" in model_line
+        assert '\\"quoted\\"' in model_line
+        assert "\\u0001" in model_line
+        assert "\\\\provider" in provider_line
+        assert '\\"provider-quoted\\"' in provider_line
+        assert "\\u0002" in provider_line
+
+        for line in outside.splitlines():
+            assert not line.startswith(
+                ("# MODEL", "## PROVIDER", "> model", "> provider", "- provider")
+            )
+            assert not line.startswith(("|", "<script>", "<table>", "[model]", "[provider]"))
+            assert not line.startswith(("```model", "````provider"))
+
+        source = json.loads(_extract_json_block(content))
+        assert source["producer"]["model"] == model
+        assert source["producer"]["provider"] == provider
+
     def test_output_is_deterministic(self) -> None:
         a = self._render(build_packet)
         b = self._render(build_packet)
@@ -457,7 +591,7 @@ class TestCiJsonRenderer:
     def test_payload_carries_required_fields(self, builder: Any) -> None:
         sealed = _sealed(builder)
         parsed = json.loads(self._render(builder))
-        assert parsed["schema"] == RENDERED_VIEW_SCHEMA_ID
+        assert "schema" not in parsed
         assert parsed["contract_version"] == sealed.contract_version
         assert parsed["artifact_type"] == sealed.artifact_type
         assert parsed["project_id"] == sealed.project_id
@@ -484,11 +618,19 @@ class TestCiJsonRenderer:
         assert "# " not in content.split("{", 1)[0]
 
     def test_payload_is_strict(self) -> None:
-        # _CiPayload is extra=forbid.
+        parsed = json.loads(self._render(build_packet))
         with pytest.raises(ValidationError):
-            _CiPayload.model_validate(
-                {"schema": RENDERED_VIEW_SCHEMA_ID}  # incomplete + no extras allowed
-            )
+            _CiPayload.model_validate(parsed | {"unexpected": True})
+
+    def test_payload_is_frozen(self) -> None:
+        payload = _CiPayload.model_validate(json.loads(self._render(build_packet)))
+        with pytest.raises((ValidationError, TypeError, ValueError)):
+            payload.consumer = "human"  # type: ignore[assignment]
+
+    def test_enclosing_view_keeps_rendered_view_schema(self) -> None:
+        view = render_artifact(_sealed(build_packet), rendered_at=RENDER_AT, consumer="ci")
+        assert view.schema_uri == RENDERED_VIEW_SCHEMA_ID
+        assert "schema" not in json.loads(view.content)
 
     def test_output_is_deterministic(self) -> None:
         a = self._render(build_packet)
@@ -687,6 +829,13 @@ class TestAdversarialProse:
         # The pipe, heading hash, html, and link are inside inline code.
         assert "a`b|c#d<e>[f](g)" in wrapped
 
+    def test_summary_escape_is_reversible_and_single_line(self) -> None:
+        value = 'line 1\nline 2\r\ttab \\path "quoted"\u0003'
+        escaped = _escape_summary_value(value)
+        assert "\n" not in escaped
+        assert "\r" not in escaped
+        assert json.loads(f'"{escaped}"') == value
+
     def test_inline_code_padding_for_edge_backticks(self) -> None:
         assert _inline_code("`edge`").startswith("``")
         # Leading/trailing backtick values get space padding inside the span.
@@ -722,12 +871,12 @@ def _content_digest(text: str) -> str:
 # is a deliberate, review-visible action.
 GOLDEN_CONTENT_DIGESTS: dict[tuple[str, str], str] = {
     ("packet", "human"): "686ed2ba9cfbd5ed51df5833d2893cb93bf218fc2132c1e5e66de60443a20e9c",
-    ("packet", "ci"): "8796be0e7df7c7f6609b782d345474f52d103e79d627a329795295b77c99e972",
+    ("packet", "ci"): "c76977c76780b905e7bb5fb06fb1bbdf6ba8bde5cc563282c5799e051102d36a",
     (
         "completion_report",
         "human",
     ): "9b0488b1a4a7eb20981cf84866d1a077e9a9e675a4fa4973b00f356fc6664126",
-    ("completion_report", "ci"): "f698ca31d78e99b79d8af68d5cf8d9871cf8942f292d7756b3ef171064a14e01",
+    ("completion_report", "ci"): "bced740eb2177510f9ded7b2f5024c19a42db63b03316eeea1bd228927557c15",
     (
         "certification_manifest",
         "human",
@@ -735,26 +884,26 @@ GOLDEN_CONTENT_DIGESTS: dict[tuple[str, str], str] = {
     (
         "certification_manifest",
         "ci",
-    ): "e7795f932db16527ee4a01107a64389e10975a3cf9a805e1a448280c525a22bd",
+    ): "a4943b4cc8018d2e0909d4188caeaccd698082c9017ec74ef727f297f6111468",
     (
         "evidence_artifact",
         "human",
     ): "d9717fa9f10d4be8afce0eeb1bd55e387dda30628c6a48b521af12abaed6b2e8",
-    ("evidence_artifact", "ci"): "99e2018eea96d4987ab327935c6369b5d33564c7bcdcf13e90728934a3d693c9",
+    ("evidence_artifact", "ci"): "cdce0520f90cd88f52c0324fa5bbc081af183e0d6d55ab22b0cd4cf20175bc7c",
     ("observation", "human"): "3d3be5c161f1b06af9f14b907e2bfac322bce09da3f6baebd4baa6fd71f9b9bd",
-    ("observation", "ci"): "2f5b7edbdd655c9e336633fb07b365ee1152139b90618dd17cd129f0c63883d8",
+    ("observation", "ci"): "c2292349d73ea1262a54c6b1ffe84d17219decbd7cbf31959298b8dd03b86263",
     ("review_report", "human"): "4badce26430c4f0d0ff0fdde9e1bdee05720b4221bb3ae2b066a28388bff97dd",
-    ("review_report", "ci"): "7ace119f1ffa0af3698c5e83b10bf740e59060790bd29a09e495944f0471057c",
+    ("review_report", "ci"): "3a41084ff6993da9a3e697372f96c2f3a43623729cf55efb735f3d793b41af37",
     (
         "decision_record",
         "human",
     ): "176218edefd738030ec3c96e6f88f60e4b97f86f26614002825911448e9a09b1",
-    ("decision_record", "ci"): "137a514bded7021ab06afa440d0dafbc5788294bd5b282d40eb8a8d39eabb3db",
+    ("decision_record", "ci"): "31117320609de757b3b307d75d21889e93f41af054770b323331f8cebf136540",
     (
         "workflow_bundle",
         "human",
     ): "4e0ada3cd09031af82989680fde5aa18ce26e8df82c9dab66ad48701eb886549",
-    ("workflow_bundle", "ci"): "0d254e8781e9457140e7d022487a1e04b130fe16df146607982b4f9236b97cc6",
+    ("workflow_bundle", "ci"): "2ef8f2f629bc7db5842872cf58f13535b63a54b1451f29a42bdfe71ff25e2b03",
 }
 
 

@@ -27,7 +27,8 @@ registered renderer in A3A; requests for them fail explicitly.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime
 from types import MappingProxyType
 from typing import Optional, Protocol, runtime_checkable
@@ -58,9 +59,20 @@ class RendererProtocol(Protocol):
     renderer version.
     """
 
-    consumer: RenderConsumer
-    media_type: MediaType
-    renderer: RendererReference
+    @property
+    def consumer(self) -> RenderConsumer:
+        """Return the consumer for this renderer."""
+        ...
+
+    @property
+    def media_type(self) -> MediaType:
+        """Return the output media type for this renderer."""
+        ...
+
+    @property
+    def renderer(self) -> RendererReference:
+        """Return the stable renderer identity."""
+        ...
 
     def render_content(self, artifact: ZadcArtifact) -> str:
         """Return the rendered content for a verified ``artifact``."""
@@ -78,20 +90,35 @@ class RendererNotFoundError(Exception):
         super().__init__(f"no renderer registered for consumer {consumer!r}")
 
 
+@dataclass(frozen=True, slots=True)
+class _RendererRegistration:
+    """An immutable snapshot of one renderer registration."""
+
+    consumer: RenderConsumer
+    media_type: MediaType
+    renderer: RendererReference
+    _render_content: Callable[[ZadcArtifact], str] = field(repr=False, compare=False)
+
+    def render_content(self, artifact: ZadcArtifact) -> str:
+        """Render content with the callable captured during registration."""
+        return self._render_content(artifact)
+
+
 class RendererRegistry:
-    """An immutable registry mapping consumers to renderer instances.
+    """An immutable registry mapping consumers to registration snapshots.
 
     Constructed from an explicit, finite renderer sequence. Duplicate consumer
-    registrations are rejected at construction. After construction the
-    registry exposes no mutation surface: the consumer-to-renderer mapping is
-    frozen. Lookup for an unregistered consumer raises
-    :class:`RendererNotFoundError`.
+    registrations are rejected at construction. Each registration snapshots
+    its consumer, media type, renderer identity, and render callable. Later
+    changes to an input renderer's metadata cannot change the registry. After
+    construction, the registry exposes no mutation surface. Lookup for an
+    unregistered consumer raises :class:`RendererNotFoundError`.
     """
 
     __slots__ = ("_renderers",)
 
     def __init__(self, renderers: Sequence[RendererProtocol]) -> None:
-        mapping: dict[RenderConsumer, RendererProtocol] = {}
+        mapping: dict[RenderConsumer, _RendererRegistration] = {}
         for renderer in renderers:
             consumer = renderer.consumer
             if consumer in mapping:
@@ -100,8 +127,17 @@ class RendererRegistry:
                     f"{mapping[consumer].renderer.renderer_id!r} and "
                     f"{renderer.renderer.renderer_id!r}"
                 )
-            mapping[consumer] = renderer
-        self._renderers: MappingProxyType[RenderConsumer, RendererProtocol] = MappingProxyType(
+            renderer_reference = RendererReference(
+                renderer_id=renderer.renderer.renderer_id,
+                renderer_version=renderer.renderer.renderer_version,
+            )
+            mapping[consumer] = _RendererRegistration(
+                consumer=consumer,
+                media_type=renderer.media_type,
+                renderer=renderer_reference,
+                _render_content=renderer.render_content,
+            )
+        self._renderers: MappingProxyType[RenderConsumer, _RendererRegistration] = MappingProxyType(
             mapping
         )
 
