@@ -57,6 +57,20 @@ Public API:
                                 the public validation adapter.
         Plus their nested supporting models — see ``zadc.models``.
 
+    A3A rendering foundation (non-authoritative projected views):
+        RenderConsumer         — The render-consumer vocabulary.
+        RendererReference      — Stable identity for one renderer.
+        RenderedView           — A non-authoritative projection record.
+        RendererProtocol       — The narrow protocol every renderer satisfies.
+        RendererRegistry       — An immutable consumer-to-renderer registry.
+        HumanMarkdownRenderer  — Human-readable Markdown renderer (consumer
+                                  ``human``).
+        CiJsonRenderer         — Machine-neutral canonical-JSON renderer
+                                  (consumer ``ci``).
+        DEFAULT_RENDERER_REGISTRY — Exactly the two default renderers.
+        render_artifact        — Verify, select, render, construct a view.
+        RendererNotFoundError  — No renderer registered for a consumer.
+
     Canonical JSON:
         canonical_json_bytes(value) -> bytes
         canonical_json_text(value)  -> str
@@ -145,6 +159,18 @@ from zadc.models.workflow_bundle import (
     BundleBlocker,
     DerivedStateSnapshot,
     WorkflowBundle,
+)
+from zadc.rendering import (
+    DEFAULT_RENDERER_REGISTRY,
+    CiJsonRenderer,
+    HumanMarkdownRenderer,
+    RenderConsumer,
+    RenderedView,
+    RendererNotFoundError,
+    RendererProtocol,
+    RendererReference,
+    RendererRegistry,
+    render_artifact,
 )
 from zadc.types import (
     CONTRACT_VERSION,
@@ -300,4 +326,15 @@ __all__ = [
     "DigestError",
     "DigestMissingError",
     "DigestMismatchError",
+    # Rendering foundation (A3A)
+    "RenderConsumer",
+    "RendererReference",
+    "RenderedView",
+    "RendererProtocol",
+    "RendererRegistry",
+    "HumanMarkdownRenderer",
+    "CiJsonRenderer",
+    "DEFAULT_RENDERER_REGISTRY",
+    "render_artifact",
+    "RendererNotFoundError",
 ]

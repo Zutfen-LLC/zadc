@@ -1,11 +1,13 @@
-"""FIX2-BP-09 / A2A / A2B1 / A2B2: Package/API and evidence accuracy.
+"""FIX2-BP-09 / A2A / A2B1 / A2B2 / A3A: Package/API and evidence accuracy.
 
 Tests that the clean-venv package smoke supplies required constants/parents,
 docs describe exact GlobalId and timestamp profiles, and the public API
 remains bounded to A1 foundation plus A2A concrete artifacts plus the A2B1
 review/decision artifacts plus the A2B2 WorkflowBundle and global artifact
-union — with no lifecycle/policy-eval/adapter/renderer/integration symbols
-(deferred to A3 and later slices).
+union plus the A3A rendering foundation (human/ci renderers and the
+non-authoritative RenderedView) — with no lifecycle/policy-eval/adapter
+symbols, no agent-specific (Hermes/Codex/Claude) renderers, and no
+integration symbols (deferred to A3B and later slices).
 """
 
 from pathlib import Path
@@ -119,6 +121,17 @@ class TestPublicAPIBounded:
         "ZADC_ARTIFACT_ADAPTER",
         "validate_artifact",
         "validate_artifact_json",
+        # Rendering foundation (A3A)
+        "RenderConsumer",
+        "RendererReference",
+        "RenderedView",
+        "RendererProtocol",
+        "RendererRegistry",
+        "HumanMarkdownRenderer",
+        "CiJsonRenderer",
+        "DEFAULT_RENDERER_REGISTRY",
+        "render_artifact",
+        "RendererNotFoundError",
         # Canonical JSON
         "canonical_json_bytes",
         "canonical_json_text",
@@ -134,12 +147,17 @@ class TestPublicAPIBounded:
     }
 
     PROHIBITED_SYMBOLS = {
-        # A3/001B+ functionality — must not exist in this slice
+        # A3/001B+ functionality — must not exist in this slice. A3A renderer
+        # symbols (human/ci) are now permitted; the agent-specific renderers,
+        # lifecycle evaluators, provider adapters, and integrations remain
+        # absent (deferred to A3B and later slices).
         "LifecycleState",
         "PolicyEvaluator",
         "GitAdapter",
         "GitHubAdapter",
-        "Renderer",
+        "HermesRenderer",
+        "CodexRenderer",
+        "ClaudeRenderer",
         "EngramIntegration",
         "FlowstateIntegration",
     }

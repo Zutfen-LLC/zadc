@@ -148,9 +148,11 @@ class TestFix3BP09Regression:
 
     def test_no_a3_plus_symbols(self) -> None:
         """A2A adds Packet/CompletionReport; A2B1 adds ReviewReport/
-        DecisionRecord; A2B2 adds WorkflowBundle/ZadcArtifact; later-slice
-        symbols (lifecycle derivation, policy evaluation, provider adapters,
-        renderers, Engram/Flowstate integration) remain absent."""
+        DecisionRecord; A2B2 adds WorkflowBundle/ZadcArtifact; A3A adds the
+        human/ci rendering foundation; later-slice symbols (lifecycle
+        derivation, policy evaluation, provider adapters, the agent-specific
+        Hermes/Codex/Claude renderers, Engram/Flowstate integration) remain
+        absent."""
         import zadc
 
         prohibited = {
@@ -158,7 +160,9 @@ class TestFix3BP09Regression:
             "PolicyEvaluator",
             "GitAdapter",
             "GitHubAdapter",
-            "Renderer",
+            "HermesRenderer",
+            "CodexRenderer",
+            "ClaudeRenderer",
             "EngramIntegration",
             "FlowstateIntegration",
         }
