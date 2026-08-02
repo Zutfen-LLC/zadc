@@ -18,8 +18,9 @@ Public API:
     Renderers:
         HumanMarkdownRenderer — human-readable Markdown (consumer ``human``).
         CiJsonRenderer        — machine-neutral canonical JSON (consumer ``ci``).
+        HermesRenderer        — Hermes-specific Markdown (consumer ``hermes``).
     Constants:
-        DEFAULT_RENDERER_REGISTRY — exactly the two default renderers.
+        DEFAULT_RENDERER_REGISTRY — exactly the three default renderers.
         RENDERED_VIEW_SCHEMA_ID   — the rendered-view schema $id.
         RENDERED_VIEW_VERSION     — the rendered-view version.
     Functions:
@@ -29,6 +30,7 @@ Public API:
 """
 
 from zadc.rendering.ci import CI_SOURCE_ARTIFACT_KEY, CiJsonRenderer
+from zadc.rendering.hermes import HermesRenderer
 from zadc.rendering.human import HumanMarkdownRenderer
 from zadc.rendering.models import (
     RENDERED_VIEW_SCHEMA_ID,
@@ -51,6 +53,7 @@ __all__ = [
     "RENDERED_VIEW_SCHEMA_ID",
     "RENDERED_VIEW_VERSION",
     "CiJsonRenderer",
+    "HermesRenderer",
     "HumanMarkdownRenderer",
     "RenderConsumer",
     "RenderedView",

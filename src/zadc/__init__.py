@@ -57,7 +57,7 @@ Public API:
                                 the public validation adapter.
         Plus their nested supporting models — see ``zadc.models``.
 
-    A3A rendering foundation (non-authoritative projected views):
+    A3A/A3B1 rendering foundation (non-authoritative projected views):
         RenderConsumer         — The render-consumer vocabulary.
         RendererReference      — Stable identity for one renderer.
         RenderedView           — A non-authoritative projection record.
@@ -67,7 +67,9 @@ Public API:
                                   ``human``).
         CiJsonRenderer         — Machine-neutral canonical-JSON renderer
                                   (consumer ``ci``).
-        DEFAULT_RENDERER_REGISTRY — Exactly the two default renderers.
+        HermesRenderer         — Hermes-specific Markdown renderer (consumer
+                                  ``hermes``).
+        DEFAULT_RENDERER_REGISTRY — Exactly the three default renderers.
         render_artifact        — Verify, select, render, construct a view.
         RendererNotFoundError  — No renderer registered for a consumer.
 
@@ -163,6 +165,7 @@ from zadc.models.workflow_bundle import (
 from zadc.rendering import (
     DEFAULT_RENDERER_REGISTRY,
     CiJsonRenderer,
+    HermesRenderer,
     HumanMarkdownRenderer,
     RenderConsumer,
     RenderedView,
@@ -326,7 +329,7 @@ __all__ = [
     "DigestError",
     "DigestMissingError",
     "DigestMismatchError",
-    # Rendering foundation (A3A)
+    # Rendering foundation (A3A/A3B1)
     "RenderConsumer",
     "RendererReference",
     "RenderedView",
@@ -334,6 +337,7 @@ __all__ = [
     "RendererRegistry",
     "HumanMarkdownRenderer",
     "CiJsonRenderer",
+    "HermesRenderer",
     "DEFAULT_RENDERER_REGISTRY",
     "render_artifact",
     "RendererNotFoundError",
