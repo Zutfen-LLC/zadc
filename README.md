@@ -19,15 +19,17 @@ foundation with concrete canonical artifact models: **Packet**,
 digest-sealed, and backed by a generated JSON Schema — plus a global,
 `artifact_type`-discriminated `ZadcArtifact` union covering all eight. It
 also adds a deterministic, **non-authoritative** rendering layer
-(`render_artifact`, `HumanMarkdownRenderer`, `CiJsonRenderer`) that projects
-any verified sealed artifact into a human-readable Markdown view or a
-machine-neutral canonical-JSON view without altering canonical authority
+(`render_artifact`, `HumanMarkdownRenderer`, `CiJsonRenderer`,
+`HermesRenderer`) that projects any verified sealed artifact into a
+human-readable Markdown view, a machine-neutral canonical-JSON view, or a
+Hermes-specific Markdown view without altering canonical authority
 semantics. See
 [docs/api-a1-foundation.md](docs/api-a1-foundation.md),
 [docs/api-a2a-execution-evidence-artifacts.md](docs/api-a2a-execution-evidence-artifacts.md),
 [docs/api-a2b1-review-decision-artifacts.md](docs/api-a2b1-review-decision-artifacts.md),
 [docs/api-a2b2-workflow-bundle-union.md](docs/api-a2b2-workflow-bundle-union.md),
-and [docs/api-a3a-rendering-foundation.md](docs/api-a3a-rendering-foundation.md).
+[docs/api-a3a-rendering-foundation.md](docs/api-a3a-rendering-foundation.md),
+and [docs/api-a3b1-hermes-renderer.md](docs/api-a3b1-hermes-renderer.md).
 
 `ReviewReport` and `DecisionRecord` preserve the distinction between
 reviewer judgment and authenticated human authority: a structurally valid
@@ -65,9 +67,15 @@ ci_view = render_artifact(
     sealed, rendered_at=datetime(2026, 8, 1, 12, 0, 0, tzinfo=UTC), consumer="ci"
 )
 print(ci_view.media_type)    # application/json
+
+hermes_view = render_artifact(
+    sealed, rendered_at=datetime(2026, 8, 1, 12, 0, 0, tzinfo=UTC), consumer="hermes"
+)
+print(hermes_view.media_type)  # text/markdown
 ```
 
 See [docs/api-a3a-rendering-foundation.md](docs/api-a3a-rendering-foundation.md)
+and [docs/api-a3b1-hermes-renderer.md](docs/api-a3b1-hermes-renderer.md)
 for the full boundary, registry behavior, escaping rules, and examples.
 
 ## Identity
