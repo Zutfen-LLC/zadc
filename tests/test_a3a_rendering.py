@@ -398,6 +398,117 @@ class TestRendererRegistry:
 
 
 # ---------------------------------------------------------------------------
+# Fixed built-in renderer identities
+# ---------------------------------------------------------------------------
+
+
+_REPLACEMENT_RENDERER = RendererReference(renderer_id="impostor", renderer_version="9.9.9")
+
+#: Identity override attempts that must be rejected by every built-in
+#: renderer constructor. ``consumer`` swaps the documented consumer, the
+#: ``media_type`` value is a real media type, and ``renderer`` is a valid
+#: :class:`RendererReference`; all are rejected only because the identity
+#: fields are non-configurable (``init=False``).
+_IDENTITY_OVERRIDES: list[dict[str, Any]] = [
+    {"consumer": "ci"},
+    {"media_type": "application/octet-stream"},
+    {"renderer": _REPLACEMENT_RENDERER},
+    {
+        "consumer": "human",
+        "media_type": "application/json",
+        "renderer": _REPLACEMENT_RENDERER,
+    },
+]
+
+
+@pytest.mark.parametrize("renderer_cls", [HumanMarkdownRenderer, CiJsonRenderer])
+@pytest.mark.parametrize("identity_override", _IDENTITY_OVERRIDES)
+def test_builtin_constructors_reject_identity_overrides(
+    renderer_cls: type, identity_override: dict[str, Any]
+) -> None:
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        renderer_cls(**identity_override)
+
+
+@pytest.mark.parametrize(
+    "renderer_cls",
+    [HumanMarkdownRenderer, CiJsonRenderer],
+)
+def test_builtin_constructors_accept_no_arguments(renderer_cls: type) -> None:
+    # The argument-free constructor is the only construction surface.
+    instance = renderer_cls()
+    assert isinstance(instance, RendererProtocol)
+
+
+def test_human_markdown_exposes_documented_identity() -> None:
+    renderer = HumanMarkdownRenderer()
+    assert renderer.consumer == "human"
+    assert renderer.media_type == "text/markdown"
+    assert renderer.renderer == RendererReference(
+        renderer_id="zadc-human-markdown", renderer_version=RENDERED_VIEW_VERSION
+    )
+
+
+def test_ci_json_exposes_documented_identity() -> None:
+    renderer = CiJsonRenderer()
+    assert renderer.consumer == "ci"
+    assert renderer.media_type == "application/json"
+    assert renderer.renderer == RendererReference(
+        renderer_id="zadc-ci-json", renderer_version=RENDERED_VIEW_VERSION
+    )
+
+
+@pytest.mark.parametrize("builder", _VARIANT_BUILDERS)
+def test_ci_content_identity_equals_enclosing_view_metadata(builder: Any) -> None:
+    sealed = _sealed(builder)
+    view = render_artifact(sealed, rendered_at=RENDER_AT, consumer="ci")
+    parsed = json.loads(view.content)
+    # The machine-readable CI payload carries the same consumer and renderer
+    # identity recorded by the enclosing RenderedView projection metadata.
+    assert parsed["consumer"] == view.consumer
+    assert parsed["renderer"]["renderer_id"] == view.renderer.renderer_id
+    assert parsed["renderer"]["renderer_version"] == view.renderer.renderer_version
+
+
+def test_ci_content_identity_equals_view_metadata_for_explicit_registry() -> None:
+    # A registry built from a fresh built-in instance must still agree with the
+    # content payload, since both are derived from the same fixed identity.
+    sealed = _sealed(build_packet)
+    registry = RendererRegistry((CiJsonRenderer(),))
+    view = render_artifact(sealed, rendered_at=RENDER_AT, consumer="ci", registry=registry)
+    parsed = json.loads(view.content)
+    assert parsed["consumer"] == view.consumer
+    assert parsed["renderer"] == {
+        "renderer_id": view.renderer.renderer_id,
+        "renderer_version": view.renderer.renderer_version,
+    }
+
+
+def test_default_registry_rendering_is_deterministic() -> None:
+    sealed = _sealed(build_packet)
+    consumers: tuple[RenderConsumer, ...] = ("human", "ci")
+    for consumer in consumers:
+        first = render_artifact(sealed, rendered_at=RENDER_AT, consumer=consumer).content
+        second = render_artifact(sealed, rendered_at=RENDER_AT, consumer=consumer).content
+        assert first == second
+
+
+def test_custom_registry_rendering_is_deterministic() -> None:
+    sealed = _sealed(build_packet)
+    registry = RendererRegistry((_MutableRenderer(),))
+    first = render_artifact(
+        sealed, rendered_at=RENDER_AT, consumer="human", registry=registry
+    ).content
+    second = render_artifact(
+        sealed, rendered_at=RENDER_AT, consumer="human", registry=registry
+    ).content
+    assert first == second
+    # The custom renderer's fixed metadata is reflected verbatim in the view.
+    view = render_artifact(sealed, rendered_at=RENDER_AT, consumer="human", registry=registry)
+    assert view.renderer.renderer_id == "mutable-renderer"
+
+
+# ---------------------------------------------------------------------------
 # Human Markdown renderer
 # ---------------------------------------------------------------------------
 

@@ -30,12 +30,12 @@ source content digest.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
-from typing import cast
+from dataclasses import dataclass, field
+from typing import Literal, cast
 
 from zadc.canonical import canonical_json_text
 from zadc.models.artifact_union import ZadcArtifact
-from zadc.rendering.models import RENDERED_VIEW_VERSION, RenderConsumer, RendererReference
+from zadc.rendering.models import RENDERED_VIEW_VERSION, RendererReference
 from zadc.types import MediaType
 
 
@@ -135,11 +135,18 @@ class HumanMarkdownRenderer:
     Identity: consumer ``human``, media type ``text/markdown``,
     ``zadc-human-markdown @ 0.1.0``. Stateless — output depends only on the
     verified source artifact and the renderer version.
+
+    The identity fields (``consumer``, ``media_type``, ``renderer``) are
+    :func:`~dataclasses.field` declarations with ``init=False`` and fixed
+    defaults. The generated constructor therefore takes no arguments, so the
+    documented identity can be neither replaced at construction nor changed
+    afterward, and the render metadata displayed in the Markdown projection
+    always matches the enclosing view.
     """
 
-    consumer: RenderConsumer = "human"
-    media_type: MediaType = "text/markdown"
-    renderer: RendererReference = _HUMAN_RENDERER_REFERENCE
+    consumer: Literal["human"] = field(default="human", init=False)
+    media_type: MediaType = field(default="text/markdown", init=False)
+    renderer: RendererReference = field(default=_HUMAN_RENDERER_REFERENCE, init=False)
 
     def render_content(self, artifact: ZadcArtifact) -> str:
         """Return the deterministic Markdown projection of ``artifact``.
