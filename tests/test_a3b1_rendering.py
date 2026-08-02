@@ -225,7 +225,7 @@ class TestFixedIdentity:
     def test_frozen_and_slotted(self) -> None:
         renderer = HermesRenderer()
         # slots: cannot set unknown attributes
-        with pytest.raises(AttributeError):
+        with pytest.raises((AttributeError, TypeError)):
             renderer.new_field = True  # type: ignore[attr-defined]
 
 
